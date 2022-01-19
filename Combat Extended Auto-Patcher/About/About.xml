@@ -1,0 +1,21 @@
+<ModMetaData>
+	<name>Combat Extended Auto-Patcher</name>
+	<author>Nuff</author>
+  <packageId>Nuff.CEAutoPatcher</packageId>
+	<supportedVersions>
+		<li>1.3</li>
+	</supportedVersions>
+	<description>Auto-Patches mods that lack a CE patch. Not as good as a custom patch, but makes them usable.</description>
+	<url></url>
+  <modDependencies>
+    <li>
+      <packageID>CETeam.CombatExtended</packageID>
+      <displayName>Combat Extended</displayName>
+      <steamWorkshopUrl>steam://url/CommunityFilePage/1631756268</steamWorkshopUrl>
+      <downloadUrl>https://github.com/CombatExtended-Continued/CombatExtended</downloadUrl>
+    </li>
+   </modDependencies>
+  <loadAfter>
+    <li>CETeam.CombatExtended</li>
+  </loadAfter>
+</ModMetaData>
