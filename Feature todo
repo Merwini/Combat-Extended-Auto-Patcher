@@ -1,0 +1,12 @@
+Develop formulae for CE conversion
+  Weapons
+  Armor
+  Pawns
+  Turrets
+    Need to be set to 1.49m cover height
+    Weapon should be covered by weapon conversion formula
+  
+Function to enumerate mods
+  Check for those already with CE patches and exclude them
+  Check within mods for defs that need patching
+  Apply patches
