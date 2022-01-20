@@ -42,10 +42,11 @@ namespace CEAP
         int defsFailed = 0; //4
         StringBuilder failureList = new StringBuilder(); //will be logged after patchedMessage if defsFailed > 0
 
-        public List<ThingDef> weapons = new List<ThingDef>();
-        public List<ThingDef> apparel = new List<ThingDef>();
-        public List<ThingDef> animals = new List<ThingDef>();
-        public List<ThingDef> aliens = new List<ThingDef>();
+        public List<ThingDef> weaponList = new List<ThingDef>();
+        public List<ThingDef> apparelList = new List<ThingDef>();
+        public List<ThingDef> animalList = new List<ThingDef>();
+        public List<ThingDef> alienList = new List<ThingDef>();
+        public List<ThingDef> turretList = new List<ThingDef>();
 
         public override void DefsLoaded()
         {
@@ -53,11 +54,11 @@ namespace CEAP
                 return;
 
             MakeLists();
-            PatchWeapons();
-            PatchApparel();
-            PatchAnimals();
-            PatchAliens();
-            //TODO patch turrets
+            PatchWeapons(weaponList);
+            PatchApparel(apparelList);
+            PatchAnimals(animalList);
+            PatchAliens(alienList);
+            PatchTurrets(turretList);
         }
 
         private void MakeLists()
@@ -65,41 +66,71 @@ namespace CEAP
             BeginPatch("LISTING");
             try
             {
-                foreach (ThingDef td in from thd in DefDatabase<ThingDef>.AllDefs
-                                        where
-                                            thd.defName.Contains("pistol") || thd.defName.Contains("Pistol")
-                                        select thd)
+                foreach (ThingDef td in DefDatabase<ThingDef>.AllDefs)                 
                 {
-                    Logger.Message(td.defName.ToString());
-                    weapons.Add(td);
-                    Logger.Message("Item ad  ded");
+                    if (td.IsWeapon)
+                    {
+                        weaponList.Add(td);
+                    }
+                    if (td.IsApparel)
+                    {
+                        apparelList.Add(td);
+                    }
+                    //if (td.IsAnimal?)
+                    {
+                        //animalList.Add(td);
+                    }
+                    //if (td.IsAlien?)
+                    {
+                        //alienList.Add(td);
+                    }
+                    if (td.thingClass.ToString().Contains("TurretGun"))
+                    {
+                        turretList.Add(td);
+                    }
                 }
             }
             catch (Exception ex)
             {
                 Logger.Error(ex.ToString());
+                defsFailed++;
             }
             finally
             {
-                Logger.Message(weapons.Count.ToString());
-                foreach (ThingDef td in weapons)
-                {
-                    Logger.Message(td.defName.ToString());
-                    
-                }
-                EndPatch("LISTING");
+                EndPatch("LISTING"); //TODO make a different string for the listmaking step
             }
         }
-        private void PatchWeapons()
+        private void PatchWeapons(List<ThingDef> weapons)
         {
             BeginPatch("WEAPONS");
             try
             {
-                
+                foreach (ThingDef weapon in weapons)
+                {
+                    defsTotal++;
+                    if (weapon.IsRangedWeapon)
+                    {
+                        //TODO: check if already CE-compatible
+                        //TODO: if not, add CE stats, remove vanilla stats, GenerateAmmo(weapon)
+                        defsPatched++;
+                    }
+                    else if (weapon.IsMeleeWeapon)
+                    {
+                        //TODO: check if already CE-compatible
+                        //TODO: if not, add CE stats, remove vanilla stats
+                        defsPatched++;
+                    }
+                    else
+                    {
+                        Logger.Message("Weapon {1} is neither ranged nor melee. Freaking the fuck out.", weapon.defName); //TODO don't say 'freaking the fucking out'
+                        defsFailed++;
+                    }
+                }
             }
             catch (Exception ex)
             {
                 Logger.Error(ex.ToString());
+                defsFailed++;
             }
             finally
             {
@@ -107,16 +138,21 @@ namespace CEAP
             }
         }
 
-        private void PatchApparel()
+        private void PatchApparel(List<ThingDef> apparels)
         {
             BeginPatch("APPAREL"); 
             try
             {
-
+                foreach (ThingDef apparel in apparels)
+                {
+                    //TODO: check if already CE-compatible
+                    //TODO: if not, make it so
+                }
             }
             catch (Exception ex)
             {
                 Logger.Error(ex.ToString());
+                defsFailed++;
             }
             finally
             {
@@ -124,16 +160,20 @@ namespace CEAP
             }
         }
 
-        private void PatchAnimals()
+        private void PatchAnimals(List<ThingDef> animals)
         {
             BeginPatch("ANIMALS");
             try
             {
-
+                foreach (ThingDef animal in animals)
+                {
+                    //TODO check if CE-compatible
+                }
             }
             catch (Exception ex)
             {
                 Logger.Error(ex.ToString());
+                defsFailed++;
             }
             finally
             {
@@ -141,21 +181,57 @@ namespace CEAP
             }
         }
 
-        private void PatchAliens()
+        private void PatchAliens(List<ThingDef> aliens)
         {
             BeginPatch("ALIENS");
             try
             {
-
+                foreach (ThingDef alien in aliens)
+                {
+                    //TODO check if CE compatible
+                }
             }
             catch (Exception ex)
             {
                 Logger.Error(ex.ToString());
+                defsFailed++;
             }
             finally
             {
                 EndPatch("ALIENS");
             }
+        }
+
+        private void PatchTurrets(List<ThingDef> turrets)
+        {
+            BeginPatch("TURRETS");
+            try
+            {
+                foreach (ThingDef turret in turrets)
+                {
+                    defsTotal++;
+                    if (turret.fillPercent < 0.85)
+                    {
+                        turret.fillPercent = 0.85f;
+                        defsPatched++;
+                    }
+                    //TODO check if cover height == 1.49m by making fillPercent = 0.85
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex.ToString());
+                defsFailed++;
+            }
+            finally
+            {
+                EndPatch("TURRETS");
+            }
+        }
+
+        private void GenerateAmmo(ThingDef needsAmmo)
+        {
+
         }
 
         public void ProcessSettings()
