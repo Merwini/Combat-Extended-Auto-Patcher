@@ -42,74 +42,120 @@ namespace CEAP
         int defsFailed = 0; //4
         StringBuilder failureList = new StringBuilder(); //will be logged after patchedMessage if defsFailed > 0
 
+        public List<ThingDef> weapons = new List<ThingDef>();
+        public List<ThingDef> apparel = new List<ThingDef>();
+        public List<ThingDef> animals = new List<ThingDef>();
+        public List<ThingDef> aliens = new List<ThingDef>();
+
         public override void DefsLoaded()
         {
             if (!ModIsActive)
                 return;
 
-            try
-            {
-                PatchWeapons();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-            }
-            
-            try
-            {
-                PatchApparel();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-            }
-
-            try
-            {
-                PatchAnimals();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-            }
-
-            try
-            {
-                PatchAliens();
-            }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-            }
+            MakeLists();
+            PatchWeapons();
+            PatchApparel();
+            PatchAnimals();
+            PatchAliens();
+            //TODO patch turrets
         }
 
+        private void MakeLists()
+        {
+            BeginPatch("LISTING");
+            try
+            {
+                foreach (ThingDef td in from thd in DefDatabase<ThingDef>.AllDefs
+                                        where
+                                            thd.defName.Contains("pistol") || thd.defName.Contains("Pistol")
+                                        select thd)
+                {
+                    Logger.Message(td.defName.ToString());
+                    weapons.Add(td);
+                    Logger.Message("Item ad  ded");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex.ToString());
+            }
+            finally
+            {
+                Logger.Message(weapons.Count.ToString());
+                foreach (ThingDef td in weapons)
+                {
+                    Logger.Message(td.defName.ToString());
+                    
+                }
+                EndPatch("LISTING");
+            }
+        }
         private void PatchWeapons()
         {
             BeginPatch("WEAPONS");
-
-            EndPatch("WEAPONS");
+            try
+            {
+                
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex.ToString());
+            }
+            finally
+            {
+                EndPatch("WEAPONS");
+            }
         }
 
         private void PatchApparel()
         {
-            BeginPatch("APPAREL");
+            BeginPatch("APPAREL"); 
+            try
+            {
 
-            EndPatch("APPAREL");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex.ToString());
+            }
+            finally
+            {
+                EndPatch("APPAREL");
+            }
         }
 
         private void PatchAnimals()
         {
             BeginPatch("ANIMALS");
+            try
+            {
 
-            EndPatch("ANIMALS");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex.ToString());
+            }
+            finally
+            {
+                EndPatch("ANIMALS");
+            }
         }
 
         private void PatchAliens()
         {
             BeginPatch("ALIENS");
+            try
+            {
 
-            EndPatch("ALIENS");
+            }
+            catch (Exception ex)
+            {
+                Logger.Error(ex.ToString());
+            }
+            finally
+            {
+                EndPatch("ALIENS");
+            }
         }
 
         public void ProcessSettings()
@@ -121,7 +167,6 @@ namespace CEAP
         {
             stopwatch.Start();
             Logger.Message($"Attempting to patch {defCat} Defs");
-
         }
 
         private void EndPatch(string defCat)
