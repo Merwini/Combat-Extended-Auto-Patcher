@@ -11,6 +11,7 @@ using HugsLib;
 using HugsLib.Settings;
 using CombatExtended;
 using UnityEngine;
+using RimWorld;
 
 namespace CEAP
 {
@@ -34,6 +35,7 @@ namespace CEAP
         //2 : integer, defs of that type found
         //3 : integer, defs successfully patched
         //4 : integer, defs unsuccessfully patched
+        Stopwatch stopwatchMaster = new Stopwatch();
         Stopwatch stopwatch = new Stopwatch();
         //used for logging
         string patchedMessage = "Patched defs of type {0} in {1:F4} seconds. {2} patched out of {3}, {4} failed.";
@@ -53,17 +55,23 @@ namespace CEAP
             if (!ModIsActive)
                 return;
 
+            stopwatchMaster.Start();
+
             MakeLists();
             PatchWeapons(weaponList);
             PatchApparel(apparelList);
             PatchAnimals(animalList);
             PatchAliens(alienList);
             PatchTurrets(turretList);
+
+            stopwatchMaster.Stop();
+            Logger.Message($"Combat Extended Auto-Patcher finished in {stopwatchMaster.ElapsedMilliseconds / 1000f} seconds.");
         }
 
         private void MakeLists()
         {
-            BeginPatch("LISTING");
+            stopwatch.Start();
+            Logger.Message("Combat Extended Auto-Patcher list-making has started.");
             try
             {
                 foreach (ThingDef td in DefDatabase<ThingDef>.AllDefs)                 
@@ -93,11 +101,12 @@ namespace CEAP
             catch (Exception ex)
             {
                 Logger.Error(ex.ToString());
-                defsFailed++;
             }
             finally
             {
-                EndPatch("LISTING"); //TODO make a different string for the listmaking step
+                stopwatch.Stop();
+                Logger.Message($"Combat Extended Auto-Patcher has finished making lists in {stopwatch.ElapsedMilliseconds / 1000f} seconds.");
+                stopwatch.Reset();
             }
         }
         private void PatchWeapons(List<ThingDef> weapons)
@@ -110,13 +119,13 @@ namespace CEAP
                     defsTotal++;
                     if (weapon.IsRangedWeapon)
                     {
-                        //TODO: check if already CE-compatible
+                        //TODO: check if already CE-compatible, has AMMO
                         //TODO: if not, add CE stats, remove vanilla stats, GenerateAmmo(weapon)
                         defsPatched++;
                     }
                     else if (weapon.IsMeleeWeapon)
                     {
-                        //TODO: check if already CE-compatible
+                        //TODO: check if already CE-compatible, not sure how
                         //TODO: if not, add CE stats, remove vanilla stats
                         defsPatched++;
                     }
@@ -143,10 +152,69 @@ namespace CEAP
             BeginPatch("APPAREL"); 
             try
             {
+                StatDef bulkPlaceholder;
+                StatDef wornBulkPlaceholder;
+                for (int i = 0; ;i++) //this entire loop is to find a reference to the StatDef WornBulk, since it apparently doesn't exist in code, instead being created by parsing the XML
+                {
+                    int tempIndex = apparels[i].statBases.FindIndex(wob => wob.ToString().Contains("WornBulk"));
+                    if (tempIndex > 0) //index will be -1 if no worn bulk StatModifier exists
+                    {
+                        wornBulkPlaceholder = apparels[i].statBases[tempIndex].stat;
+                        bulkPlaceholder = apparels[i].statBases[apparels[i].statBases.FindIndex(wob => wob.ToString().StartsWith("Bulk"))].stat; //I assume anything with WornBulk will also have Bulk
+                        break;
+                    }
+                    
+                }
                 foreach (ThingDef apparel in apparels)
                 {
-                    //TODO: check if already CE-compatible
-                    //TODO: if not, make it so
+                    defsTotal++;
+                    float newBulk = 0f;
+                    float newWornBulk = 0f;
+                    if (apparel.statBases.FindIndex(wob => wob.ToString().Contains("WornBulk")) == -1) //will catch unpatched apparel, but also apparel with intentionally no wornbulk
+                    {
+                        foreach (ApparelLayerDef ald in apparel.apparel.layers)
+                        {
+                            float mass = apparel.statBases[apparel.statBases.FindIndex(wob => wob.ToString().Contains("Mass"))].value;
+                            if (ald == ApparelLayerDefOf.OnSkin || ald.ToString().ToUpper().Contains("SKIN")) 
+                            {
+                            }
+                            if (ald == ApparelLayerDefOf.Middle || ald.ToString().ToUpper().Contains("MID"))
+                            {
+                                if (mass > 2)
+                                {
+                                    newBulk += 5f;
+                                    newWornBulk += 3f;
+                                }
+                            }
+                            if (ald == ApparelLayerDefOf.Shell || ald.ToString().ToUpper().Contains("SHELL") || ald.ToString().ToUpper().Contains("OUTER")) //had to add extra conditions to try to account for modded alien layers
+                            {
+                                if (mass > 2)
+                                {
+                                    if (newWornBulk == 0)
+                                    {
+                                        newBulk += 7.5f;
+                                        newWornBulk += 2.5f;
+                                    }
+                                    else
+                                    {
+                                        newBulk *= 20;
+                                        newWornBulk *= 5;
+                                    }
+                                }
+                            }
+                        }
+
+                        StatModifier statModBulk = new StatModifier();
+                        statModBulk.stat = bulkPlaceholder;
+                        statModBulk.value = newBulk;
+
+                        StatModifier statModWornBulk = new StatModifier();
+                        statModWornBulk.stat = wornBulkPlaceholder;
+                        statModWornBulk.value = newWornBulk;
+                        apparel.statBases.Add(statModWornBulk);
+                        apparel.statBases.Add(statModBulk);
+                        defsPatched++;
+                    }
                 }
             }
             catch (Exception ex)
