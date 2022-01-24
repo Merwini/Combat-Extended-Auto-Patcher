@@ -25,9 +25,10 @@ namespace CEAP
 
 
         //Customizable settings? Change to get these numbers from user settable Mod Options
-        public int oneHandCutoff = 1;
-        public int shotgunCutoff = 16; //range below this value is classed as a shotgun
-        public int sniperCutoff = 40; //range above this value is classed as a sniper rifle
+        public float oneHandCutoff = 2f; //TODO: make a Mass below this add the CE_OneHandedWeapon and CE_Sidearm weaponTags
+        public float heavyCutoff = 5.5f; //TODO: Mass at or above this adds GunHeavy weaponTags
+        public float shotgunCutoff = 16f; //range below this value is classed as a shotgun
+        public float sniperCutoff = 40f; //TODO: range above this value adds SniperRifle weaponTags
 
         //centralized values for determining Bulk, Worn Bulk, Armor Values
         public float skinBulkAdd = 1f;
@@ -69,14 +70,14 @@ namespace CEAP
 
 
         public float sharpMult = 10f;
-        public float bluntMult = 20f;
+        public float bluntMult = 40f;
         public float animalMult = 0.25f;
         public float neolithicMult = 0.5f;
         public float medievalMult = 0.75f;
         public float industrialMult = 1f;
-        public float spacerMult = 1.5f;
-        public float ultraMult = 2f;
-        public float archoMult = 3f;
+        public float spacerMult = 2f;
+        public float ultraMult = 3f;
+        public float archoMult = 4f;
 
         //to be used by the four patch methods
         //0 : string, type of def being patched by that method
@@ -112,6 +113,7 @@ namespace CEAP
             PatchAnimals(animalList);
             PatchAliens(alienList);
             PatchTurrets(turretList);
+            //TODO: patch hediffs (fix armor values etc)
 
             stopwatchMaster.Stop();
             Logger.Message($"Combat Extended Auto-Patcher finished in {stopwatchMaster.ElapsedMilliseconds / 1000f} seconds.");
@@ -161,15 +163,17 @@ namespace CEAP
         private void PatchWeapons(List<ThingDef> weapons)
         {
             BeginPatch("WEAPONS");
-            try
+
+            foreach (ThingDef weapon in weapons)
             {
-                foreach (ThingDef weapon in weapons)
+                try
                 {
                     defsTotal++;
                     if (weapon.IsRangedWeapon)
                     {
                         //TODO: check if already CE-compatible, has AMMO
                         //TODO: if not, add CE stats, remove vanilla stats, GenerateAmmo(weapon)
+                        //Burst size will be size for Burst fire mode, 2x for suppressive (if burst > 1)
                         defsPatched++;
                     }
                     else if (weapon.IsMeleeWeapon)
@@ -184,49 +188,54 @@ namespace CEAP
                         defsFailed++;
                     }
                 }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex.ToString());
+                    defsFailed++;
+                }
             }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-                defsFailed++;
-            }
-            finally
-            {
-                EndPatch("WEAPONS");
-            }
+            EndPatch("WEAPONS");
         }
 
         private void PatchApparel(List<ThingDef> apparels)
         {
             BeginPatch("APPAREL"); 
-            try //TODO put the 'try' inside the for loop so it can continue; if fails
-            {          
-                foreach (ThingDef apparel in apparels) //TODO put a try block in this so it can continue; after exceptions
+                    
+            foreach (ThingDef apparel in apparels) //TODO put a try block in this so it can continue; after exceptions
+            {
+                defsTotal++;
+                float newBulk = 0f;
+                float newWornBulk = 0f;
+                float techMult = 1f;
+                try //TODO put the 'try' inside the for loop so it can continue; if fails
                 {
-                    defsTotal++;
-                    float newBulk = 0f;
-                    float newWornBulk = 0f;
-                    float techMult = 1f;
-
                     if (apparel.statBases.FindIndex(wob => wob.ToString().Contains("WornBulk")) == -1) //unpatched apparel (or poor patches) will have no WornBulk element in its statBases list
                     {
                         switch (apparel.techLevel)
                         {
-                            case TechLevel.Animal: techMult = animalMult;
+                            case TechLevel.Animal:
+                                techMult = animalMult;
                                 break;
-                            case TechLevel.Neolithic: techMult = neolithicMult;
+                            case TechLevel.Neolithic:
+                                techMult = neolithicMult;
                                 break;
-                            case TechLevel.Medieval: techMult = medievalMult;
+                            case TechLevel.Medieval:
+                                techMult = medievalMult;
                                 break;
-                            case TechLevel.Industrial: techMult = industrialMult;
+                            case TechLevel.Industrial:
+                                techMult = industrialMult;
                                 break;
-                            case TechLevel.Spacer: techMult = spacerMult;
+                            case TechLevel.Spacer:
+                                techMult = spacerMult;
                                 break;
-                            case TechLevel.Ultra: techMult = ultraMult;
+                            case TechLevel.Ultra:
+                                techMult = ultraMult;
                                 break;
-                            case TechLevel.Archotech: techMult = archoMult;
+                            case TechLevel.Archotech:
+                                techMult = archoMult;
                                 break;
-                            default: techMult = 1f;
+                            default:
+                                techMult = 1f;
                                 break;
                         }
 
@@ -282,7 +291,7 @@ namespace CEAP
                         {
                             apparel.statBases[sharpIndex].value *= sharpMult * techMult;
                         }
-                        if (sharpIndex >= 0)
+                        if (bluntIndex >= 0)
                         {
                             apparel.statBases[bluntIndex].value *= bluntMult * techMult;
                         }
@@ -292,7 +301,7 @@ namespace CEAP
                         statModBulk.value = newBulk;
 
                         StatModifier statModWornBulk = new StatModifier();
-                        statModWornBulk.stat = StatDef.Named("WornBulk") ;
+                        statModWornBulk.stat = StatDef.Named("WornBulk");
                         statModWornBulk.value = newWornBulk;
 
                         apparel.statBases.Add(statModWornBulk);
@@ -327,17 +336,14 @@ namespace CEAP
                         defsPatched++;
                     }
                 }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex.ToString());
+                    failureList.AppendLine(apparel.defName);
+                    defsFailed++;
+                }
             }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-                //failureList.AppendLine(apparel.defName)
-                defsFailed++;
-            }
-            finally
-            {
-                EndPatch("APPAREL");
-            }
+            EndPatch("APPAREL");
         }
 
         private void PatchAnimals(List<ThingDef> animals)
