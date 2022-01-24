@@ -29,6 +29,55 @@ namespace CEAP
         public int shotgunCutoff = 16; //range below this value is classed as a shotgun
         public int sniperCutoff = 40; //range above this value is classed as a sniper rifle
 
+        //centralized values for determining Bulk, Worn Bulk, Armor Values
+        public float skinBulkAdd = 0f;
+        public float skinWulkAdd = 0f;
+        public float slinBulkMult = 1f;
+        public float skinWulkMult = 1f;
+
+        public float midBulkAdd = 5f;
+        public float midWulkAdd = 3f;
+        public float midBulkMult = 1f;
+        public float midWulkMult = 1f;
+
+        public float shellBulkAdd = 7.5f;
+        public float shellWulkAdd = 2.5f;
+        public float shellBulkMult = 20f;
+        public float shellWulkMult = 5f;
+
+        public float skinSharpMult;
+        public float skinBluntMult;
+        public float midSharpMult;
+        public float midBluntMult;
+        public float shellSharpMult;
+        public float shellBluntMult;
+
+        /* never mind, trying to come up with multipliers for different tech levels is way too mod-dependent
+        public float fleshSharpMult = 10f;
+        public float fleshBluntMult = 10f;
+        public float medievalSharpMult;
+        public float medievalBluntMult;
+        public float industrialSharpMult;
+        public float industrialBluntMult;
+        public float spacerSharpMult;
+        public float spacerBluntMult;
+        public float ultraSharpMult = 30;
+        public float ultraBluntMult = 80;
+        public float archoSharpMult = 20;
+        public float archoBluntMult =20;
+        */
+
+
+        public float sharpMult = 10f;
+        public float bluntMult = 20f;
+        public float animalMult = 0.25f;
+        public float neolithicMult = 0.5f;
+        public float medievalMult = 0.75f;
+        public float industrialMult = 1f;
+        public float spacerMult = 1.5f;
+        public float ultraMult = 2f;
+        public float archoMult = 3f;
+
         //to be used by the four patch methods
         //0 : string, type of def being patched by that method
         //1 : float, stopwatch time elapsed for that patch operation
@@ -68,7 +117,7 @@ namespace CEAP
             Logger.Message($"Combat Extended Auto-Patcher finished in {stopwatchMaster.ElapsedMilliseconds / 1000f} seconds.");
         }
 
-        private void MakeLists()
+        private void MakeLists() // I know that making lists first is just using extra cpu cycles, but makes it way easier to read/debug/maintain
         {
             stopwatch.Start();
             Logger.Message("Combat Extended Auto-Patcher list-making has started.");
@@ -150,58 +199,137 @@ namespace CEAP
         private void PatchApparel(List<ThingDef> apparels)
         {
             BeginPatch("APPAREL"); 
-            try
+            try //TODO put the 'try' inside the for loop so it can continue; if fails
             {
-                StatDef bulkPlaceholder;
-                StatDef wornBulkPlaceholder;
-                for (int i = 0; ;i++) //this entire loop is to find a reference to the StatDef WornBulk, since it apparently doesn't exist in code, instead being created by parsing the XML
+                StatDef bulkPlaceholder = new StatDef(); //assigned these so the IDE would shut up about them being used unassigned
+                StatDef wornBulkPlaceholder = new StatDef();
+                StatDef smokePlaceholder = new StatDef();
+                bool bulkFound = false;
+                bool wornFound = false;
+                bool smokeFound = false;
+                for (int i = 0; ;i++) //this entire loop is to find references to some StatDefs, that I can't find in the code
                 {
-                    int tempIndex = apparels[i].statBases.FindIndex(wob => wob.ToString().Contains("WornBulk"));
-                    if (tempIndex > 0) //index will be -1 if no worn bulk StatModifier exists
+                    if (!wornFound)
                     {
-                        wornBulkPlaceholder = apparels[i].statBases[tempIndex].stat;
-                        bulkPlaceholder = apparels[i].statBases[apparels[i].statBases.FindIndex(wob => wob.ToString().StartsWith("Bulk"))].stat; //I assume anything with WornBulk will also have Bulk
+                        int tempIndex = apparels[i].statBases.FindIndex(wob => wob.ToString().Contains("WornBulk"));
+                        if (tempIndex >= 0) //index will be -1 if no worn bulk StatModifier exists
+                        {
+                            wornBulkPlaceholder = apparels[i].statBases[tempIndex].stat;
+                            wornFound = true;
+                        }
+                    }
+                    if (!bulkFound)
+                    {
+                        int tempIndex = apparels[i].statBases.FindIndex(wob => wob.ToString().Contains("Bulk"));
+                        if (tempIndex >= 0)
+                        {
+                            bulkPlaceholder = apparels[i].statBases[tempIndex].stat;
+                            bulkFound = true;
+                        }
+                    }
+                    if (!smokeFound)
+                    {
+                        if (apparels[i].equippedStatOffsets != null) //holy crap this took me a long time to debug; I figured if there were no stat offsets it would be an empty list, not a null reference
+                        {
+                            int tempIndex = apparels[i].equippedStatOffsets.FindIndex(wob => wob.ToString().Contains("Smoke"));
+                            if (tempIndex >= 0)
+                            {
+                                smokePlaceholder = apparels[i].equippedStatOffsets[tempIndex].stat;
+                                smokeFound = true;
+                            }
+                        }
+                        
+                    }
+                    if (smokeFound && bulkFound && wornFound)
+                    {
                         break;
                     }
                     
                 }
-                foreach (ThingDef apparel in apparels)
+                foreach (ThingDef apparel in apparels) //TODO put a try block in this so it can continue; after exceptions
                 {
                     defsTotal++;
                     float newBulk = 0f;
                     float newWornBulk = 0f;
-                    if (apparel.statBases.FindIndex(wob => wob.ToString().Contains("WornBulk")) == -1) //will catch unpatched apparel, but also apparel with intentionally no wornbulk
+                    float techMult = 1f;
+
+                    if (apparel.statBases.FindIndex(wob => wob.ToString().Contains("WornBulk")) == -1) //unpatched apparel (or poor patches) will have no WornBulk element in its statBases list
                     {
+                        switch (apparel.techLevel)
+                        {
+                            case TechLevel.Animal: techMult = animalMult;
+                                break;
+                            case TechLevel.Neolithic: techMult = neolithicMult;
+                                break;
+                            case TechLevel.Medieval: techMult = medievalMult;
+                                break;
+                            case TechLevel.Industrial: techMult = industrialMult;
+                                break;
+                            case TechLevel.Spacer: techMult = spacerMult;
+                                break;
+                            case TechLevel.Ultra: techMult = ultraMult;
+                                break;
+                            case TechLevel.Archotech: techMult = archoMult;
+                                break;
+                            default: techMult = 1f;
+                                break;
+                        }
+
+                        bool isSkin = false;
+                        bool isMid = false;
+                        bool isShell = false;
+
                         foreach (ApparelLayerDef ald in apparel.apparel.layers)
                         {
                             float mass = apparel.statBases[apparel.statBases.FindIndex(wob => wob.ToString().Contains("Mass"))].value;
-                            if (ald == ApparelLayerDefOf.OnSkin || ald.ToString().ToUpper().Contains("SKIN")) 
+                            if (ald == ApparelLayerDefOf.OnSkin || ald.ToString().ToUpper().Contains("SKIN") || ald.ToString().ToUpper().Contains("STRAPPED"))
                             {
+                                isSkin = true;
                             }
                             if (ald == ApparelLayerDefOf.Middle || ald.ToString().ToUpper().Contains("MID"))
                             {
+                                isMid = true;
                                 if (mass > 2)
                                 {
-                                    newBulk += 5f;
-                                    newWornBulk += 3f;
+                                    newBulk += midBulkAdd;
+                                    newWornBulk += midWulkAdd;
                                 }
                             }
                             if (ald == ApparelLayerDefOf.Shell || ald.ToString().ToUpper().Contains("SHELL") || ald.ToString().ToUpper().Contains("OUTER")) //had to add extra conditions to try to account for modded alien layers
                             {
+                                isShell = true;
                                 if (mass > 2)
                                 {
                                     if (newWornBulk == 0)
                                     {
-                                        newBulk += 7.5f;
-                                        newWornBulk += 2.5f;
+                                        newBulk += shellBulkAdd;
+                                        newWornBulk += shellWulkAdd;
                                     }
                                     else
                                     {
-                                        newBulk *= 20;
-                                        newWornBulk *= 5;
+                                        newBulk *= shellBulkMult;
+                                        newWornBulk *= shellWulkMult;
                                     }
                                 }
                             }
+                        }
+
+                        if (techMult > 1 && isMid && isShell)
+                        {
+                            //add weapon handling, toxic sensitivity, bulk capacity, carry weight
+                        }
+
+                        int sharpIndex = apparel.statBases.FindIndex(ars => ars.ToString().Contains("ArmorRating_Sharp"));
+                        int bluntIndex = apparel.statBases.FindIndex(ars => ars.ToString().Contains("ArmorRating_Blunt"));
+
+                        //using ifs avoids apparel with no armor values?
+                        if (sharpIndex >= 0)
+                        {
+                            apparel.statBases[sharpIndex].value *= sharpMult * techMult;
+                        }
+                        if (sharpIndex >= 0)
+                        {
+                            apparel.statBases[bluntIndex].value *= bluntMult * techMult;
                         }
 
                         StatModifier statModBulk = new StatModifier();
@@ -211,8 +339,36 @@ namespace CEAP
                         StatModifier statModWornBulk = new StatModifier();
                         statModWornBulk.stat = wornBulkPlaceholder;
                         statModWornBulk.value = newWornBulk;
+
                         apparel.statBases.Add(statModWornBulk);
                         apparel.statBases.Add(statModBulk);
+
+                        StatModifier statModSmoke = new StatModifier();
+                        statModSmoke.stat = smokePlaceholder;
+                        statModSmoke.value = -1;
+
+                        if (apparel.apparel.bodyPartGroups != null)
+                        {
+                            if (apparel.apparel.bodyPartGroups.Any(bpgd =>
+                                                                        {
+                                                                            if (bpgd.label == null)
+                                                                                return false;
+                                                                            else if (bpgd.label.ToUpper().Contains("EYES") || bpgd.label.ToUpper().Contains("FULL"))
+                                                                                return true;
+                                                                            else
+                                                                                return false;
+                                                                        }))
+                            {
+                                if (apparel.equippedStatOffsets == null)
+                                {
+                                    apparel.equippedStatOffsets = new List<StatModifier>();
+                                }
+                                if (techMult >= 1)
+                                {
+                                    apparel.equippedStatOffsets.Add(statModSmoke);
+                                }
+                            }
+                        }
                         defsPatched++;
                     }
                 }
@@ -220,6 +376,7 @@ namespace CEAP
             catch (Exception ex)
             {
                 Logger.Error(ex.ToString());
+                //failureList.AppendLine(apparel.defName)
                 defsFailed++;
             }
             finally
