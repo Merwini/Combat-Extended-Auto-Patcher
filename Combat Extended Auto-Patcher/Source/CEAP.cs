@@ -30,8 +30,8 @@ namespace CEAP
         public int sniperCutoff = 40; //range above this value is classed as a sniper rifle
 
         //centralized values for determining Bulk, Worn Bulk, Armor Values
-        public float skinBulkAdd = 0f;
-        public float skinWulkAdd = 0f;
+        public float skinBulkAdd = 1f;
+        public float skinWulkAdd = 0.5f;
         public float slinBulkMult = 1f;
         public float skinWulkMult = 1f;
 
@@ -200,52 +200,7 @@ namespace CEAP
         {
             BeginPatch("APPAREL"); 
             try //TODO put the 'try' inside the for loop so it can continue; if fails
-            {
-                StatDef bulkPlaceholder = new StatDef(); //assigned these so the IDE would shut up about them being used unassigned
-                StatDef wornBulkPlaceholder = new StatDef();
-                StatDef smokePlaceholder = new StatDef();
-                bool bulkFound = false;
-                bool wornFound = false;
-                bool smokeFound = false;
-                for (int i = 0; ;i++) //this entire loop is to find references to some StatDefs, that I can't find in the code
-                {
-                    if (!wornFound)
-                    {
-                        int tempIndex = apparels[i].statBases.FindIndex(wob => wob.ToString().Contains("WornBulk"));
-                        if (tempIndex >= 0) //index will be -1 if no worn bulk StatModifier exists
-                        {
-                            wornBulkPlaceholder = apparels[i].statBases[tempIndex].stat;
-                            wornFound = true;
-                        }
-                    }
-                    if (!bulkFound)
-                    {
-                        int tempIndex = apparels[i].statBases.FindIndex(wob => wob.ToString().Contains("Bulk"));
-                        if (tempIndex >= 0)
-                        {
-                            bulkPlaceholder = apparels[i].statBases[tempIndex].stat;
-                            bulkFound = true;
-                        }
-                    }
-                    if (!smokeFound)
-                    {
-                        if (apparels[i].equippedStatOffsets != null) //holy crap this took me a long time to debug; I figured if there were no stat offsets it would be an empty list, not a null reference
-                        {
-                            int tempIndex = apparels[i].equippedStatOffsets.FindIndex(wob => wob.ToString().Contains("Smoke"));
-                            if (tempIndex >= 0)
-                            {
-                                smokePlaceholder = apparels[i].equippedStatOffsets[tempIndex].stat;
-                                smokeFound = true;
-                            }
-                        }
-                        
-                    }
-                    if (smokeFound && bulkFound && wornFound)
-                    {
-                        break;
-                    }
-                    
-                }
+            {          
                 foreach (ThingDef apparel in apparels) //TODO put a try block in this so it can continue; after exceptions
                 {
                     defsTotal++;
@@ -333,18 +288,18 @@ namespace CEAP
                         }
 
                         StatModifier statModBulk = new StatModifier();
-                        statModBulk.stat = bulkPlaceholder;
+                        statModBulk.stat = StatDef.Named("Bulk");
                         statModBulk.value = newBulk;
 
                         StatModifier statModWornBulk = new StatModifier();
-                        statModWornBulk.stat = wornBulkPlaceholder;
+                        statModWornBulk.stat = StatDef.Named("WornBulk") ;
                         statModWornBulk.value = newWornBulk;
 
                         apparel.statBases.Add(statModWornBulk);
                         apparel.statBases.Add(statModBulk);
 
                         StatModifier statModSmoke = new StatModifier();
-                        statModSmoke.stat = smokePlaceholder;
+                        statModSmoke.stat = StatDef.Named("SmokeSensitivity");
                         statModSmoke.value = -1;
 
                         if (apparel.apparel.bodyPartGroups != null)
