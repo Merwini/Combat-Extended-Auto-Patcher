@@ -67,9 +67,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="CEAP.cs" />
+    <Compile Include="ThingDefDuplicator.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Ammos\GenericAmmo.xml" />
+    <Content Include="Ammos\GenericNeolithicAmmo.xml" />
     <Content Include="RimWorldWin64.exe" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

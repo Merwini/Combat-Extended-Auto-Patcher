@@ -30,6 +30,35 @@ namespace CEAP
         public float shotgunCutoff = 16f; //range below this value is classed as a shotgun
         public float sniperCutoff = 40f; //TODO: range above this value adds SniperRifle weaponTags
 
+        //gun values here since multiple methods need them
+        float gunMass = 0f;
+        float gunRange = 0f;
+        float accuracyTouch = 0f;
+        float accuracyShort = 0f;
+        float accuracyMedium = 0f;
+        float accuracyLong = 0f;
+        float forcedMissRadius = 0f;
+        int ticksBetweenBurstShots = 0;
+        int burstShotCountV = 1;
+        gunTypes gunType;
+
+        //types of guns, used for determining stats
+        enum gunTypes
+        {
+            Bow,
+            Grenade,
+            Pistol,
+            SMG,
+            Rifle,
+            Shotgun,
+            Sniper,
+            MachineGun,
+            GrenadeLauncher,
+            RocketLauncher,
+            Turret,
+            Other
+        }
+
         //centralized values for determining Bulk, Worn Bulk, Armor Values
         public float skinBulkAdd = 1f;
         public float skinWulkAdd = 0.5f;
@@ -53,22 +82,6 @@ namespace CEAP
         public float shellSharpMult;
         public float shellBluntMult;
 
-        /* never mind, trying to come up with multipliers for different tech levels is way too mod-dependent
-        public float fleshSharpMult = 10f;
-        public float fleshBluntMult = 10f;
-        public float medievalSharpMult;
-        public float medievalBluntMult;
-        public float industrialSharpMult;
-        public float industrialBluntMult;
-        public float spacerSharpMult;
-        public float spacerBluntMult;
-        public float ultraSharpMult = 30;
-        public float ultraBluntMult = 80;
-        public float archoSharpMult = 20;
-        public float archoBluntMult =20;
-        */
-
-
         public float sharpMult = 10f;
         public float bluntMult = 40f;
         public float animalMult = 0.25f;
@@ -78,6 +91,13 @@ namespace CEAP
         public float spacerMult = 2f;
         public float ultraMult = 3f;
         public float archoMult = 4f;
+
+        //will be used to store references to the generic ammoset def
+        public AmmoSetDef genericAmmoSet;
+
+        //will be used to store references to the generic ammo defs
+        //TODO a 2d array is probably better but this is much more readable/maintainable?
+        public ThingDef[] genericAmmos = new ThingDef[3];
 
         //to be used by the four patch methods
         //0 : string, type of def being patched by that method
@@ -99,6 +119,39 @@ namespace CEAP
         public List<ThingDef> animalList = new List<ThingDef>();
         public List<ThingDef> alienList = new List<ThingDef>();
         public List<ThingDef> turretList = new List<ThingDef>();
+
+        enum VanillaStatBases //StatModifiers used by vanilla and not CE
+        {
+            AccuracyTouch,
+            AccuracyShort,
+            AccuracyMedium,
+            AccuracyLong,
+        }
+
+        enum CEStatBases //StatModifiers used by CE but not vanilla
+        {
+            SightsEfficiency,
+            ShotSpread,
+            SwayFactor,
+            Bulk,
+            TicksBetweenBurstShots,
+            BurstShotCount,
+            Recoil,
+            ReloadTime
+        }
+
+        enum SharedStatBases //StatModifiers used by both vanilla and CE
+        {
+            MaxHitPoints,
+            Flammability,
+            DeteriorationRate,
+            Beauty,
+            SellPriceFactor,
+            MarketValue,
+            Mass,
+            RangedWeapon_Cooldown,
+            WorkToMake
+        }
 
         public override void DefsLoaded()
         {
@@ -127,25 +180,47 @@ namespace CEAP
             {
                 foreach (ThingDef td in DefDatabase<ThingDef>.AllDefs)                 
                 {
+                    //finds the generic ammos and stores references to them
+                    //TODO find reference to the generic ammoset
+                    if (td.defName.Contains("CEAP"))
+                    {
+                        switch (td.defName)
+                        {
+                            case "CEAP_Ammo_Generic_FMJ":
+                                genericAmmos[0] = td;
+                                break;
+                            case "CEAP_Ammo_Generic_AP:":
+                                genericAmmos[1] = td;
+                                break;
+                            case "CEAP_Ammo_Generic_HP":
+                                genericAmmos[2] = td;
+                                break;
+                        }
+                    }
                     if (td.IsWeapon)
                     {
                         weaponList.Add(td);
+                        continue;
                     }
                     if (td.IsApparel)
                     {
                         apparelList.Add(td);
+                        continue;
                     }
-                    //if (td.IsAnimal?)
+                    //if (td.IsPawn?)
                     {
                         //animalList.Add(td);
+                        //continue;
                     }
                     //if (td.IsAlien?)
                     {
                         //alienList.Add(td);
+                        //continue;
                     }
                     if (td.thingClass.ToString().Contains("TurretGun"))
                     {
                         turretList.Add(td);
+                        continue;
                     }
                 }
             }
@@ -171,10 +246,60 @@ namespace CEAP
                     defsTotal++;
                     if (weapon.IsRangedWeapon)
                     {
-                        //TODO: check if already CE-compatible, has AMMO
-                        //TODO: if not, add CE stats, remove vanilla stats, GenerateAmmo(weapon)
-                        //Burst size will be size for Burst fire mode, 2x for suppressive (if burst > 1)
-                        defsPatched++;
+                        //any patched ranged weapons will have their original verbs removed and the CE one added, so we can find unpatched ranged weapons by checking their verbs
+                        if (weapon.Verbs.Any(vp =>
+                                                {
+                                                    if (vp.verbClass == null)
+                                                        return false;
+                                                    else if (vp.verbClass.ToString().EqualsIgnoreCase("Verse.Verb_Shoot")
+                                                             || vp.verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootOneUse")
+                                                             || vp.verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootLaunchProjectile"))
+                                                        return true;
+                                                    else
+                                                        return false;
+                                                }))
+                        {
+                            //TODO:
+                            //add/remove statBases
+                            //add/remove verbs
+                            //generate ammo
+                            //generate projectile
+                            //assign ammo
+                            //assign projectile
+                            //add CompProperties_AmmoUser and CompProperties_FireModes
+                            //Burst size will be size for Burst fire mode, 2x for suppressive (if burst > 1)
+                            //add CE melee attacks for ranged weapons
+                            //defsPatched++;
+                            //here's where we put the ranged weapon patch logic
+
+                            gunMass = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("Mass"))].value;
+                            gunRange = weapon.Verbs[0].range;
+                            accuracyTouch = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyTouch"))].value;
+                            accuracyShort = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyShort"))].value;
+                            accuracyMedium = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyMedium"))].value;
+                            accuracyLong = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyLong"))].value;
+                            forcedMissRadius = weapon.Verbs[0].ForcedMissRadius;
+                            ticksBetweenBurstShots = weapon.Verbs[0].ticksBetweenBurstShots;
+                            burstShotCountV = weapon.Verbs[0].burstShotCount;
+
+                            //debug Logger.Message(weapon.defName + " is a " + DetermineGunType(weapon).ToString());
+
+                            PatchStatBases(weapon);
+                            //Add comps CombatExtended.CompProperties_AmmoUser TODO implement
+                            //Add comps CombatExtended.CompProperties_FireModes TODO implement
+                            //PatchVerb TODO implement
+                            //GenerateAmmo(weapon); implement
+                            //PatchMelee TODO implement
+
+                            //TODO might need separate if blocks for each of the vanilla verbs
+
+                            ClearGunStats();
+                        }
+                        else
+                        {
+
+                        }
+
                     }
                     else if (weapon.IsMeleeWeapon)
                     {
@@ -191,25 +316,244 @@ namespace CEAP
                 catch (Exception ex)
                 {
                     Logger.Error(ex.ToString());
+                    failureList.AppendLine(weapon.defName);
                     defsFailed++;
+                    continue;
                 }
             }
             EndPatch("WEAPONS");
+        }
+
+        private void ClearGunStats()
+        {
+            gunMass = 0;
+            gunRange = 0;
+            accuracyTouch = 0;
+            accuracyShort = 0;
+            accuracyMedium = 0;
+            accuracyLong = 0;
+            forcedMissRadius = 0;
+            ticksBetweenBurstShots = 0;
+            burstShotCountV = 1;
+            gunType = gunTypes.Other;
+        }
+
+        private void PatchStatBases(ThingDef weapon)
+        {
+            List<StatModifier> newStatBases = new List<StatModifier>();
+            foreach (string statMod in Enum.GetNames(typeof(SharedStatBases)))
+            {
+                int index = weapon.statBases.FindIndex(sm => sm.stat.ToString().EqualsIgnoreCase(statMod));
+                if (index < 0)
+                {
+                    continue;
+                }
+                else
+                {
+                    StatModifier newStatMod = new StatModifier();
+                    newStatMod.stat = StatDef.Named(statMod);
+                    newStatMod.value = weapon.statBases[index].value;
+                    newStatBases.Add(newStatMod);
+                    continue;
+                }
+            }
+
+            //TODO: logic to turn vanilla stats into CE stats
+            //sights efficiency, float, ex: bows 0.6, small industrial arms 0.7, assault rifle 1.0, sniper rifle 3.5, charge rifle 1.1, charge smg 1.1, positive correlation to accuracy, tech level seems to be a factor, 
+            StatModifier sightsEfficiency = new StatModifier();
+            sightsEfficiency.stat = StatDef.Named("SightsEfficiency");
+            //ShotSpread: float, ex: charge rifle 0.12, FAL 0.06, sniper rifles 0.02-0.04, negatively correlates to accuracy
+            StatModifier shotSpread = new StatModifier();
+            shotSpread.stat = StatDef.Named("ShotSpread");
+            //SwayFactor: float, ex: charge smg 0.75, judge 0.91, ak47 1.23, charge rifle 1.2, seems to positively correlate to mass, lower if "2 handed". need to categorize guns?
+            StatModifier swayFactor = new StatModifier();
+            swayFactor.stat = StatDef.Named("SwayFactor");
+            //Bulk: float, for "1 handed" guns seems to be = mass, for "2 handed" = 2 * mass
+            StatModifier gunBulk = new StatModifier();
+            gunBulk.stat = StatDef.Named("Bulk");
+            //Recoil: float, ex: USAS-12 2.36, charge smg 1.2, flamethrower 0.85, FAL 2.07. seems to negatively correlate to mass. maybe damage / mass * x?
+            StatModifier recoil = new StatModifier();
+            recoil.stat = StatDef.Named("Recoil");
+            //ReloadTime: in seconds
+            StatModifier reloadTime = new StatModifier();
+            reloadTime.stat = StatDef.Named("ReloadTime");
+
+
+            float gunTechModFlat = (((float)weapon.techLevel - (float)TechLevel.Industrial) * 0.1f);
+            float gunTechModPercent = (1 - gunTechModFlat);
+            float ssAccuracyMod = (accuracyLong * 0.1f);
+            float seDefault = 1f + gunTechModFlat;
+            float recoilTechMod = (1 - (((float)weapon.techLevel - 3) * 0.2f));
+
+            switch (gunType)
+            {
+                case gunTypes.Bow:
+                    sightsEfficiency.value = 0.6f;
+                    shotSpread.value = 1f;
+                    swayFactor.value = 2f;
+                    gunBulk.value = 2f * gunMass;
+                    reloadTime.value = 1f;
+                    break;
+                case gunTypes.Pistol:
+                    shotSpread.value = (0.2f - ssAccuracyMod) * gunTechModPercent;
+                    sightsEfficiency.value = 0.7f + gunTechModFlat;
+                    swayFactor.value = gunMass * 0.9f;
+                    gunBulk.value = 1f * gunMass;
+                    reloadTime.value = 4f;
+                    break;
+                case gunTypes.SMG:
+                    shotSpread.value = (0.17f - ssAccuracyMod) * gunTechModPercent;
+                    sightsEfficiency.value = 0.7f + gunTechModFlat;
+                    swayFactor.value = gunMass * 0.8f;
+                    gunBulk.value = 1f * gunMass;
+                    recoil.value = (2f - (gunMass * 0.1f)) * recoilTechMod;
+                    reloadTime.value = 4f;
+                    break;
+                case gunTypes.Shotgun:
+                    shotSpread.value = (0.17f - ssAccuracyMod) * gunTechModPercent;
+                    sightsEfficiency.value = seDefault;
+                    swayFactor.value = gunMass * 0.4f;
+                    gunBulk.value = 2f * gunMass;
+                    reloadTime.value = 4f;
+                    break;
+                case gunTypes.Rifle:
+                    shotSpread.value = (0.13f - ssAccuracyMod) * gunTechModPercent;
+                    sightsEfficiency.value = seDefault;
+                    swayFactor.value = gunMass * 0.35f;
+                    gunBulk.value = 2f * gunMass;
+                    recoil.value = (1.8f - (gunMass * 0.1f)) * recoilTechMod;
+                    reloadTime.value = 4f;
+                    break;
+                case gunTypes.MachineGun:
+                    shotSpread.value = (0.13f - ssAccuracyMod) * gunTechModPercent;
+                    sightsEfficiency.value = seDefault;
+                    swayFactor.value = gunMass * 0.17f;
+                    gunBulk.value = 1.5f * gunMass;
+                    recoil.value = (2.3f - (gunMass * 0.1f)) * recoilTechMod;
+                    reloadTime.value = 8f; //TODO placeholder, actual value will be mag size * 0.04
+                    break;
+                case gunTypes.Sniper:
+                    shotSpread.value = (0.1f - ssAccuracyMod) * gunTechModPercent;
+                    sightsEfficiency.value = 2.6f + gunTechModFlat;
+                    swayFactor.value = 2f - (gunMass * 0.1f); //unlike other guns, sniper rifles are more steady as they get heavier
+                    gunBulk.value = 2f * gunMass;
+                    break;
+                case gunTypes.GrenadeLauncher:
+                    shotSpread.value = 0.122f + (forcedMissRadius * 0.02f);
+                    sightsEfficiency.value = seDefault;
+                    swayFactor.value = (float)Math.Sqrt(gunMass) * 0.6f;
+                    gunBulk.value = 2f * gunMass;
+                    break;
+                case gunTypes.RocketLauncher:
+                    shotSpread.value = 0.2f;
+                    sightsEfficiency.value = seDefault;
+                    swayFactor.value = 1f + (gunMass * 0.1f);
+                    gunBulk.value = 2f * gunMass;
+                    break;
+                case gunTypes.Turret:
+                    shotSpread.value = (0.1f - ssAccuracyMod) * gunTechModPercent;
+                    sightsEfficiency.value = seDefault;
+                    swayFactor.value = 1f; //since they aren't carried, we can't expect any sort of consistency for turret mass, so we can't factor it in
+                    gunBulk.value = 2f * gunMass; //would only matter if a mod exists that lets pawns carry turret guns, but doesn't hurt to be ready for that edge case
+                    recoil.value = 1f; //again, can't factor in mass for the same reason as sway
+                    break;
+                case gunTypes.Grenade:
+                    sightsEfficiency.value = 0.65f; //grenades don't have shot spread or weapon sway
+                    break;
+                default:
+                    shotSpread.value = shotSpread.value = (0.15f - ssAccuracyMod) * gunTechModPercent; //arbitrarily decided to put it between SMG and rifle
+                    sightsEfficiency.value = seDefault;
+                    swayFactor.value = gunMass * 0.5f;
+                    gunBulk.value = 2f * gunMass;
+                    recoil.value = 1f;
+                    break;
+            }
+
+
+            //TicksBetweenBurstShots is part of the verb_shoot in xml, but somehow ends up in statbases. rimworld is confusing. int ex: 4 for LMGs, 10 for AR, 12 for CR
+            StatModifier ticksBBS = new StatModifier();
+            ticksBBS.stat = StatDef.Named("TicksBetweenBurstShots");
+            ticksBBS.value = ticksBetweenBurstShots;
+
+            //BurstShotCount as above. int, ex: AR 3, LMG 10, pistols 1
+            StatModifier burstShotCount = new StatModifier();
+            burstShotCount.stat = StatDef.Named("BurstShotCount");
+            if (burstShotCountV == 1)
+                burstShotCount.value = 1;
+            else
+                burstShotCount.value = 2 * burstShotCountV;
+
+            if (gunType != gunTypes.Grenade)
+            {
+                newStatBases.Add(shotSpread);
+                newStatBases.Add(swayFactor);
+            }
+            newStatBases.Add(sightsEfficiency);
+            newStatBases.Add(gunBulk);
+            newStatBases.Add(ticksBBS);
+            newStatBases.Add(burstShotCount);
+            newStatBases.Add(recoil);
+            newStatBases.Add(reloadTime);
+
+            weapon.statBases = newStatBases;
+        }
+        private gunTypes DetermineGunType(ThingDef weapon)
+        {
+            //a turret is tagged as TurretGun, because it inherits that from BaseWeaponTurret
+            if (weapon.weaponTags.Contains("TurretGun"))
+                return gunTypes.Turret;
+            //a bow is a pre-industrial ranged weapon with a burst count of 1. Let's hope there aren't many edge cases.
+            //if (weapon.label.IndexOf("bow", 0, StringComparison.CurrentCultureIgnoreCase) != -1 || weapon.Verbs[0].defaultProjectile.label.IndexOf("arrow", 0, StringComparison.CurrentCultureIgnoreCase) != -1)
+            else if ((weapon.techLevel.CompareTo(TechLevel.Medieval) <= 0) && (burstShotCountV == 1))
+                return gunTypes.Bow;
+            //a grenade uses a different verb from most weapons
+            else if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootLaunchProjectile"))
+                return gunTypes.Grenade;
+            //grendade launchers have a forced miss radius but are reusable
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (weapon.Verbs[0].ForcedMissRadius != 0) && (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_Shoot")))
+                return gunTypes.GrenadeLauncher;
+            //rocket launchers have a forced miss radius and aren't reusable i.e. their verbClass is Verse.Verb_ShootOneUse
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (weapon.Verbs[0].ForcedMissRadius != 0) && (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootOneUse")))
+                return gunTypes.RocketLauncher;
+            //a shotgun is an industrial or higher weapon and has one of the following: shotgun in its defname, label, or description, OR shotgun or gauge in its projectile
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && ((weapon.defName.IndexOf("shotgun", 0, StringComparison.CurrentCultureIgnoreCase) != -1)
+                                                                                || (weapon.label.IndexOf("shotgun", 0, StringComparison.CurrentCultureIgnoreCase) != -1)
+                                                                                || (weapon.description.IndexOf("shotgun", 0, StringComparison.CurrentCultureIgnoreCase) != -1)
+                                                                                || (weapon.Verbs[0].defaultProjectile.ToString().IndexOf("shotgun", 0, StringComparison.CurrentCultureIgnoreCase) != -1)
+                                                                                || (weapon.Verbs[0].defaultProjectile.ToString().IndexOf("gauge", 0, StringComparison.CurrentCultureIgnoreCase) != -1)))
+                return gunTypes.Shotgun;
+            //a pistol is an industrial or higher weapon with burst count 1 and either a range < 26 OR mass < 2
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV == 1) && ((gunRange < 26) || (gunMass < 2)))
+                return gunTypes.Pistol;
+            // a sniper is an industrial or higher weapon with burst count 1 and either a range >= 26 OR mass 
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV == 1) && ((gunRange >= 26) || (gunMass > 2)))
+                return gunTypes.Sniper;
+            //an SMG is an industrial or higher weapon with burst count > 1 and a range < 23
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV > 1) && (weapon.Verbs[0].range < 23))
+                return gunTypes.SMG;
+            //a rifle is an industrial or higher weapon with burst count > 1 but < 6 and a range >= 23
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV > 1) && (burstShotCountV < 6) && (gunRange >= 23))
+                return gunTypes.Rifle;
+            //a machine gun is an industrial or higher weapon with burst count > 1 and either burst count >= 6 OR mass > 6?
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV > 1) && ((burstShotCountV >= 6) || (gunMass > 6)))
+                return gunTypes.MachineGun;
+            else
+                return gunTypes.Other;
         }
 
         private void PatchApparel(List<ThingDef> apparels)
         {
             BeginPatch("APPAREL"); 
                     
-            foreach (ThingDef apparel in apparels) //TODO put a try block in this so it can continue; after exceptions
+            foreach (ThingDef apparel in apparels)
             {
                 defsTotal++;
                 float newBulk = 0f;
                 float newWornBulk = 0f;
                 float techMult = 1f;
-                try //TODO put the 'try' inside the for loop so it can continue; if fails
+                try
                 {
-                    if (apparel.statBases.FindIndex(wob => wob.ToString().Contains("WornBulk")) == -1) //unpatched apparel (or poor patches) will have no WornBulk element in its statBases list
+                    if (apparel.statBases.FindIndex(wob => wob.ToString().Contains("Bulk")) == -1) //unpatched apparel (or poorly made patches) will have no Bulk element in its statBases list
                     {
                         switch (apparel.techLevel)
                         {
@@ -278,11 +622,6 @@ namespace CEAP
                             }
                         }
 
-                        if (techMult > 1 && isMid && isShell)
-                        {
-                            //add weapon handling, toxic sensitivity, bulk capacity, carry weight
-                        }
-
                         int sharpIndex = apparel.statBases.FindIndex(ars => ars.ToString().Contains("ArmorRating_Sharp"));
                         int bluntIndex = apparel.statBases.FindIndex(ars => ars.ToString().Contains("ArmorRating_Blunt"));
 
@@ -332,7 +671,13 @@ namespace CEAP
                                     apparel.equippedStatOffsets.Add(statModSmoke);
                                 }
                             }
+
+                            if (techMult > 1 && isMid && isShell) //TODO: make this check to see if it is non-headgear (bodyPartGroups.label ??? maybe Torso Neck Shoulders Arms Legs, or some subset thereof)
+                            {
+                                //TODO:add weapon handling, bulk capacity, carry weight on high-tech armor
+                            }
                         }
+
                         defsPatched++;
                     }
                 }
@@ -341,6 +686,7 @@ namespace CEAP
                     Logger.Error(ex.ToString());
                     failureList.AppendLine(apparel.defName);
                     defsFailed++;
+                    continue;
                 }
             }
             EndPatch("APPAREL");
@@ -375,6 +721,7 @@ namespace CEAP
                 foreach (ThingDef alien in aliens)
                 {
                     //TODO check if CE compatible
+                    //don't forget to make sure they carry the right ammo
                 }
             }
             catch (Exception ex)
@@ -401,7 +748,7 @@ namespace CEAP
                         turret.fillPercent = 0.85f;
                         defsPatched++;
                     }
-                    //TODO check if cover height == 1.49m by making fillPercent = 0.85
+                    //TODO: remove <comps><Class=CompProperties_Reguelable> and make it use ammo instead
                 }
             }
             catch (Exception ex)
@@ -415,14 +762,19 @@ namespace CEAP
             }
         }
 
-        private void GenerateAmmo(ThingDef needsAmmo)
+        private void GenerateAmmo(ThingDef needsAmmo) //probably should return the ammo
         {
-
+            ThingDef newAmmo = new ThingDef();
+            newAmmo.defName = ("CEAP_Ammo");
+            newAmmo.label = ("CEAP-generated ammo test");
+            newAmmo.description = ("A generic ammo generated by CEAP");
+            DefDatabase<ThingDef>.Add(newAmmo);
+            ThingDef newAmmoSet = ThingDefDuplicator.CreateDeepCopy(needsAmmo);
         }
 
         public void ProcessSettings()
         {
-
+            //deal with user settings here
         }
 
         private void BeginPatch(string defCat)
@@ -446,5 +798,23 @@ namespace CEAP
             defsFailed = 0;
         }
         
+    }
+
+    [Serializable]
+    public class StatBaseEx : Exception
+    {
+        public StatBaseEx() : base() { }
+        public StatBaseEx(string missingMod) : base(missingMod) 
+        {
+            MissingMod = missingMod;
+        }
+        public StatBaseEx(string missingBase, Exception inner) : base(missingBase, inner)
+        {
+            MissingMod = missingBase;
+            Inner = inner;
+        }
+
+        public string MissingMod { get; }
+        public Exception Inner { get; }
     }
 }
