@@ -5,6 +5,7 @@ using System.Text;
 using System.Xml;
 using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Runtime;
 using Verse;
 using HarmonyLib;
 using HugsLib;
@@ -41,6 +42,10 @@ namespace CEAP
         int ticksBetweenBurstShots = 0;
         int burstShotCountV = 1;
         gunTypes gunType;
+        ThingDef activeProjectile;
+        DamageDef projectileDamageType;
+        float projectileDamage = 1;
+        float projectilePenetration = 1f;
 
         //types of guns, used for determining stats
         enum gunTypes
@@ -97,7 +102,7 @@ namespace CEAP
 
         //will be used to store references to the generic ammo defs
         //TODO a 2d array is probably better but this is much more readable/maintainable?
-        public ThingDef[] genericAmmos = new ThingDef[3];
+        public ThingDef[] genericAmmos = new ThingDef[6];
 
         //to be used by the four patch methods
         //0 : string, type of def being patched by that method
@@ -113,12 +118,16 @@ namespace CEAP
         int defsTotal = 0; //3
         int defsFailed = 0; //4
         StringBuilder failureList = new StringBuilder(); //will be logged after patchedMessage if defsFailed > 0
+        StringBuilder pew = new StringBuilder(); //I have no idea why getting a projectile's damage requires a StringBuilder
 
         public List<ThingDef> weaponList = new List<ThingDef>();
         public List<ThingDef> apparelList = new List<ThingDef>();
         public List<ThingDef> animalList = new List<ThingDef>();
         public List<ThingDef> alienList = new List<ThingDef>();
         public List<ThingDef> turretList = new List<ThingDef>();
+        public List<ThingDef> projectileList = new List<ThingDef>();
+        public List<AmmoSetDef> ammoSetList = new List<AmmoSetDef>();
+        public List<AmmoDef> ammoDefList = new List<AmmoDef>();
 
         enum VanillaStatBases //StatModifiers used by vanilla and not CE
         {
@@ -153,6 +162,16 @@ namespace CEAP
             WorkToMake
         }
 
+        enum AmmoTypesForMake
+        {
+            FMJ,
+            AP,
+            HP,
+            API,
+            HE,
+            Sabot
+        }
+
         public override void DefsLoaded()
         {
             if (!ModIsActive)
@@ -161,10 +180,25 @@ namespace CEAP
             stopwatchMaster.Start();
 
             MakeLists();
+
+            int tempIndex = projectileList.FindIndex(i => i.defName.Equals("Bullet_CEAPGeneric_FMJ"));
+            List<SecondaryDamage> testEDList = new List<SecondaryDamage>();
+            SecondaryDamage testED = new SecondaryDamage();
+            ThingDef projHolder = projectileList[tempIndex];
+            ProjectilePropertiesCE projjHolder = (ProjectilePropertiesCE)projHolder.projectile;
+            testED.def = projectileList[tempIndex].projectile.damageDef;
+            testED.amount = 10;
+            testED.chance = 1;
+            testEDList.Add(testED);
+            projjHolder.secondaryDamage = testEDList; //TODO pull ExtraDamages from original projectile and add to the list
+            //Logger.Message(projHolder.defName + " " + projHolder.projectile.extraDamages[0].def.ToString() + " " + projHolder.projectile.extraDamages[0].amount + " " + projHolder.projectile.extraDamages[0].chance);
+            projjHolder.armorPenetrationSharp = 10;
+            projjHolder.armorPenetrationBlunt = 69;
+
             PatchWeapons(weaponList);
             PatchApparel(apparelList);
-            PatchAnimals(animalList);
-            PatchAliens(alienList);
+            //PatchAnimals(animalList);
+            //PatchAliens(alienList);
             PatchTurrets(turretList);
             //TODO: patch hediffs (fix armor values etc)
 
@@ -175,27 +209,57 @@ namespace CEAP
         private void MakeLists() // I know that making lists first is just using extra cpu cycles, but makes it way easier to read/debug/maintain
         {
             stopwatch.Start();
+
+            foreach (AmmoSetDef asd in DefDatabase<AmmoSetDef>.AllDefs)
+            {
+                try
+                {
+                    ammoSetList.Add(asd);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Message(ex.ToString());
+                    continue;
+                }
+            }
+
             Logger.Message("Combat Extended Auto-Patcher list-making has started.");
             try
             {
                 foreach (ThingDef td in DefDatabase<ThingDef>.AllDefs)                 
                 {
                     //finds the generic ammos and stores references to them
-                    //TODO find reference to the generic ammoset
+                    //TODO refactor, try should be inside the foreach loop
                     if (td.defName.Contains("CEAP"))
                     {
                         switch (td.defName)
                         {
-                            case "CEAP_Ammo_Generic_FMJ":
+                            case "Ammo_CEAPGeneric_FMJ":
                                 genericAmmos[0] = td;
                                 break;
-                            case "CEAP_Ammo_Generic_AP:":
+                            case "Ammo_CEAPGeneric_AP:":
                                 genericAmmos[1] = td;
                                 break;
-                            case "CEAP_Ammo_Generic_HP":
+                            case "Ammo_CEAPGeneric_HP":
                                 genericAmmos[2] = td;
                                 break;
+                            case "Ammo_CEAPGeneric_Incendiary":
+                                genericAmmos[3] = td;
+                                break;
+                            case "Ammo_CEAPGeneric_HE":
+                                genericAmmos[4] = td;
+                                break;
+                            case "Ammo_CEAPGeneric_Sabot":
+                                genericAmmos[5] = td;
+                                break;
+                            default:
+                                break;
                         }
+                    }
+                    if (td.category == ThingCategory.Projectile)
+                    {
+                        projectileList.Add(td);
+                        continue;
                     }
                     if (td.IsWeapon)
                     {
@@ -261,42 +325,60 @@ namespace CEAP
                         {
                             //TODO:
                             //add/remove statBases
-                            //add/remove verbs
                             //generate ammo
-                            //generate projectile
-                            //assign ammo
-                            //assign projectile
+                            //get projectile / sound / etc data from verb
+                            //switch to CE verb
+                            //assign projectile / sound / etc data
+                            //assign ammo to verb
                             //add CompProperties_AmmoUser and CompProperties_FireModes
                             //Burst size will be size for Burst fire mode, 2x for suppressive (if burst > 1)
                             //add CE melee attacks for ranged weapons
                             //defsPatched++;
                             //here's where we put the ranged weapon patch logic
 
-                            gunMass = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("Mass"))].value;
-                            gunRange = weapon.Verbs[0].range;
-                            accuracyTouch = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyTouch"))].value;
-                            accuracyShort = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyShort"))].value;
-                            accuracyMedium = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyMedium"))].value;
-                            accuracyLong = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyLong"))].value;
-                            forcedMissRadius = weapon.Verbs[0].ForcedMissRadius;
-                            ticksBetweenBurstShots = weapon.Verbs[0].ticksBetweenBurstShots;
-                            burstShotCountV = weapon.Verbs[0].burstShotCount;
-
-                            //debug Logger.Message(weapon.defName + " is a " + DetermineGunType(weapon).ToString());
-
+                            ScrapeGunStats(weapon);
+                            //ScrapVerb(weapon); //TODO implement
                             PatchStatBases(weapon);
-                            //Add comps CombatExtended.CompProperties_AmmoUser TODO implement
-                            //Add comps CombatExtended.CompProperties_FireModes TODO implement
+
+                            
+                            /*if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootOneUse")
+                               || weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootLaunch Projectile"))
+                            {
+                                i dunno, don't add ammouser. maybe restructure this. TODO
+                            }
+                            else
+                            {
+                                CombatExtended.CompProperties_AmmoUser ammoUser = new CombatExtended.CompProperties_AmmoUser();
+                                weapon.comps.Add(ammoUser);
+                            }*/
+
+                            //Add comps CombatExtended.CompProperties_FireModes
                             //PatchVerb TODO implement
                             //GenerateAmmo(weapon); implement
-                            //PatchMelee TODO implement
+                            //PatchTools TODO implement CombatExtended.ToolCE (melee options)
 
                             //TODO might need separate if blocks for each of the vanilla verbs
 
                             ClearGunStats();
                         }
-                        else
+                        else if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("CombatExtended.Verb_ShootCE"))
                         {
+                            //TEST CODE
+                            //Logger.Message("Gun: " + weapon.defName + " uses ammoset: ");
+                            /*int iAS = weapon.comps.FindIndex(i => i.compClass.ToString().Equals("CombatExtended.CompAmmoUser"));
+                            CompProperties_AmmoUser cp_au;
+
+                            if (iAS >= 0)
+                            {
+
+                                cp_au = (CompProperties_AmmoUser)weapon.comps[iAS];
+                                //asd = cp_au.ammoSet;
+                                //Logger.Message(asd.ToString());
+                                //Logger.Message("Next step is to make it " + genericAmmoSet.ToString());
+                                //cp_au.ammoSet = (AmmoSetDef)genericAmmoSet;
+                                //CompProperties_AmmoUser cp_au = (CompProperties_AmmoUser)weapon.comps[weapon.comps.FindIndex(i => i.compClass.ToString().Equals("CombatExtended.CompAmmoUser"))];
+                                cp_au.ammoSet = genericAmmoSet;
+                            }*/
 
                         }
 
@@ -322,6 +404,35 @@ namespace CEAP
                 }
             }
             EndPatch("WEAPONS");
+        }
+
+        private void ScrapeGunStats(ThingDef weapon)
+        {
+            FindProjectile(weapon);
+            //Logger.Message("Weapon: " + weapon.defName + ". Projectile: " + activeProjectile.defName);
+            projectileDamageType = activeProjectile.projectile.damageDef;
+            projectileDamage = activeProjectile.projectile.GetDamageAmount(1, pew);
+            projectilePenetration = activeProjectile.projectile.GetArmorPenetration(1, pew);
+            //Logger.Message("Weapon: " + weapon.defName + ". Projectile: " + activeProjectile.defName + ". Damage: " + projectileDamage + ". Penetration: " + projectilePenetration);
+            gunMass = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("Mass"))].value;
+            gunRange = weapon.Verbs[0].range;
+            accuracyTouch = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyTouch"))].value;
+            accuracyShort = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyShort"))].value;
+            accuracyMedium = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyMedium"))].value;
+            accuracyLong = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyLong"))].value;
+            forcedMissRadius = weapon.Verbs[0].ForcedMissRadius;
+            ticksBetweenBurstShots = weapon.Verbs[0].ticksBetweenBurstShots;
+            burstShotCountV = weapon.Verbs[0].burstShotCount;
+        }
+
+        private void FindProjectile(ThingDef weapon)
+        {
+            activeProjectile = weapon.Verbs[0].defaultProjectile;
+        }
+
+        private void AddCompsAmmoUser(ThingDef weapon) //TODO WIP
+        {
+
         }
 
         private void ClearGunStats()
@@ -762,19 +873,59 @@ namespace CEAP
             }
         }
 
-        private void GenerateAmmo(ThingDef needsAmmo) //probably should return the ammo
+        private AmmoSetDef GenerateAmmo(ThingDef needsAmmo) //TODO WIP
         {
-            ThingDef newAmmo = new ThingDef();
-            newAmmo.defName = ("CEAP_Ammo");
-            newAmmo.label = ("CEAP-generated ammo test");
-            newAmmo.description = ("A generic ammo generated by CEAP");
-            DefDatabase<ThingDef>.Add(newAmmo);
-            ThingDef newAmmoSet = ThingDefDuplicator.CreateDeepCopy(needsAmmo);
+            AmmoSetDef newAmmoSet = new AmmoSetDef();
+            newAmmoSet.ammoTypes.Add(MakeAmmoLink(needsAmmo));
+
+
+
+            DefDatabase<AmmoSetDef>.Add(newAmmoSet);
+            return newAmmoSet;
         }
+
+        private AmmoLink MakeAmmoLink(ThingDef weapon) //TODO WIP
+        {
+            AmmoLink newAmmoLink = new AmmoLink();
+
+            return null;
+        }
+
+        private AmmoDef MakeAmmo(ThingDef weapon) //TODO WIP
+        {
+            AmmoDef newAmmo = new AmmoDef();
+            newAmmo.defName = ("CEAP_auto_" + weapon.defName);
+            newAmmo.label = ("Ammo for " + weapon.label);
+            newAmmo.description = ("An automatically-generated ammo for " + weapon.label);
+            DefDatabase<AmmoDef>.Add(newAmmo);
+            return newAmmo;
+        }
+
+        private RecipeDef MakeReciple(AmmoDef ammo)
+        {
+            return null; //TODO
+        }
+
+        private ThingDef MakeProjectile()
+        {
+            return null;
+        }
+
+        //FAILURE, the duplicator I found only works on Serializable objects
+        /*private void GenerateTest(ThingDef testDef)
+        {
+            Logger.Message("Duplication starting on "+testDef.label);
+            ThingDef clone = new ThingDef();
+            clone.defName = testDef.defName + "_2";
+            clone.label = "mufuckin clone of " + testDef.label;
+            clone.description = "If "+ testDef.label + " was so good, why didn't they make a " + testDef.label + " 2?";
+            Logger.Message("Clone " + clone.defName + " is labeled " + clone.label + " and exists dammit!");
+            DefDatabase<ThingDef>.Add(clone);
+        }*/
 
         public void ProcessSettings()
         {
-            //deal with user settings here
+            //TODO make some user settings and deal with them here
         }
 
         private void BeginPatch(string defCat)
