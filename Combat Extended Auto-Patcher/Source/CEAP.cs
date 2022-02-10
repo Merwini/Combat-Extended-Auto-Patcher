@@ -10,6 +10,7 @@ using Verse;
 using HarmonyLib;
 using HugsLib;
 using HugsLib.Settings;
+using HugsLib.Utils;
 using CombatExtended;
 using UnityEngine;
 using RimWorld;
@@ -24,28 +25,46 @@ namespace CEAP
             get { return "CEAP"; }
         }
 
-
-        //Customizable settings? Change to get these numbers from user settable Mod Options
-        public float oneHandCutoff = 2f; //TODO: make a Mass below this add the CE_OneHandedWeapon and CE_Sidearm weaponTags
-        public float heavyCutoff = 5.5f; //TODO: Mass at or above this adds GunHeavy weaponTags
-        public float shotgunCutoff = 16f; //range below this value is classed as a shotgun
-        public float sniperCutoff = 40f; //TODO: range above this value adds SniperRifle weaponTags
-
         //gun values here since multiple methods need them
+        //statbases
         float gunMass = 0f;
-        float gunRange = 0f;
         float accuracyTouch = 0f;
         float accuracyShort = 0f;
         float accuracyMedium = 0f;
         float accuracyLong = 0f;
+
+        //Verb properties
+        VerbProperties vp; 
+        string verbLabel = "";
+        SoundDef soundCast = null;
+        SoundDef soundCastTail = null;
+        SoundDef soundAiming = null;
+        TargetingParameters targetParams = null;
+        RulePackDef rangedFireRulepack = null;
         float forcedMissRadius = 0f;
         int ticksBetweenBurstShots = 0;
         int burstShotCountV = 1;
-        gunTypes gunType;
+        float warmupTime = 0;
+        float gunRange = 0f;
+        float muzzleFlashScale = 0;
+        bool hasStandardCommand = true;
+        bool ai_IsBuildingDestroyer = false;
+        float ai_AvoidFriendlyFireRadius = 0;
+        bool onlyManualCast = false;
+        bool stopBurstWithoutLos = true;
         ThingDef activeProjectile;
+        
+        
+
+        //projectile properties
         DamageDef projectileDamageType;
         float projectileDamage = 1;
         float projectilePenetration = 1f;
+
+        //Misc
+        gunTypes gunType;
+        TechLevel gunTechLevel = TechLevel.Undefined;
+        
 
         //types of guns, used for determining stats
         enum gunTypes
@@ -99,10 +118,11 @@ namespace CEAP
 
         //will be used to store references to the generic ammoset def
         public AmmoSetDef genericAmmoSet;
+        public ThingDef genericRifle;
 
         //will be used to store references to the generic ammo defs
         //TODO a 2d array is probably better but this is much more readable/maintainable?
-        public ThingDef[] genericAmmos = new ThingDef[6];
+        public AmmoDef[] genericAmmos = new AmmoDef[6];
 
         //to be used by the four patch methods
         //0 : string, type of def being patched by that method
@@ -181,19 +201,8 @@ namespace CEAP
 
             MakeLists();
 
-            int tempIndex = projectileList.FindIndex(i => i.defName.Equals("Bullet_CEAPGeneric_FMJ"));
-            List<SecondaryDamage> testEDList = new List<SecondaryDamage>();
-            SecondaryDamage testED = new SecondaryDamage();
-            ThingDef projHolder = projectileList[tempIndex];
-            ProjectilePropertiesCE projjHolder = (ProjectilePropertiesCE)projHolder.projectile;
-            testED.def = projectileList[tempIndex].projectile.damageDef;
-            testED.amount = 10;
-            testED.chance = 1;
-            testEDList.Add(testED);
-            projjHolder.secondaryDamage = testEDList; //TODO pull ExtraDamages from original projectile and add to the list
-            //Logger.Message(projHolder.defName + " " + projHolder.projectile.extraDamages[0].def.ToString() + " " + projHolder.projectile.extraDamages[0].amount + " " + projHolder.projectile.extraDamages[0].chance);
-            projjHolder.armorPenetrationSharp = 10;
-            projjHolder.armorPenetrationBlunt = 69;
+
+            
 
             PatchWeapons(weaponList);
             PatchApparel(apparelList);
@@ -201,6 +210,18 @@ namespace CEAP
             //PatchAliens(alienList);
             PatchTurrets(turretList);
             //TODO: patch hediffs (fix armor values etc)
+            //TODO: remove generics so they don't show up during play
+
+            foreach (ThingDef td in DefDatabase<ThingDef>.AllDefs)
+            {
+                if (td.defName.Contains("CEAP"))
+                {
+                    if (td.projectile == null)
+                    {
+                        Logger.Message(td.defName);
+                    }
+                }
+            }
 
             stopwatchMaster.Stop();
             Logger.Message($"Combat Extended Auto-Patcher finished in {stopwatchMaster.ElapsedMilliseconds / 1000f} seconds.");
@@ -209,9 +230,14 @@ namespace CEAP
         private void MakeLists() // I know that making lists first is just using extra cpu cycles, but makes it way easier to read/debug/maintain
         {
             stopwatch.Start();
+            Logger.Message("Combat Extended Auto-Patcher list-making has started.");
 
             foreach (AmmoSetDef asd in DefDatabase<AmmoSetDef>.AllDefs)
             {
+                if (asd.defName.Equals("CEAP_Generic_Gun_AmmoSet"))
+                {
+                    genericAmmoSet = asd;
+                }
                 try
                 {
                     ammoSetList.Add(asd);
@@ -223,34 +249,47 @@ namespace CEAP
                 }
             }
 
-            Logger.Message("Combat Extended Auto-Patcher list-making has started.");
-            try
+            foreach (AmmoDef ad in DefDatabase<AmmoDef>.AllDefs)
+            {
+                if (ad.defName.Contains("CEAP")) //TODO use a FindIndex instead of foreach unless I end up needing to find more
+                {
+                    switch (ad.defName)
+                    {
+                        case "Ammo_CEAPGeneric_FMJ":
+                            genericAmmos[0] = ad; //TODO increase the array size if I add more to find
+                            break;
+                        case "Ammo_CEAPGeneric_AP":
+                            genericAmmos[1] = ad; //TODO increase the array size if I add more to find
+                            break;
+                        case "Ammo_CEAPGeneric_HP":
+                            genericAmmos[2] = ad; //TODO increase the array size if I add more to find
+                            break;
+                        case "Ammo_CEAPGeneric_Incendiary":
+                            genericAmmos[3] = ad; //TODO increase the array size if I add more to find
+                            break;
+                        case "Ammo_CEAPGeneric_HE":
+                            genericAmmos[4] = ad; //TODO increase the array size if I add more to find
+                            break;
+                        case "Ammo_CEAPGeneric_Sabot":
+                            genericAmmos[5] = ad; //TODO increase the array size if I add more to find
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+            try //TODO put the try inside the foreach, not the other way around
             {
                 foreach (ThingDef td in DefDatabase<ThingDef>.AllDefs)                 
                 {
                     //finds the generic ammos and stores references to them
                     //TODO refactor, try should be inside the foreach loop
-                    if (td.defName.Contains("CEAP"))
+                    if (td.defName.Contains("CEAP")) //TODO use a FindIndex instead of foreach unless I end up needing to find more
                     {
                         switch (td.defName)
                         {
-                            case "Ammo_CEAPGeneric_FMJ":
-                                genericAmmos[0] = td;
-                                break;
-                            case "Ammo_CEAPGeneric_AP:":
-                                genericAmmos[1] = td;
-                                break;
-                            case "Ammo_CEAPGeneric_HP":
-                                genericAmmos[2] = td;
-                                break;
-                            case "Ammo_CEAPGeneric_Incendiary":
-                                genericAmmos[3] = td;
-                                break;
-                            case "Ammo_CEAPGeneric_HE":
-                                genericAmmos[4] = td;
-                                break;
-                            case "Ammo_CEAPGeneric_Sabot":
-                                genericAmmos[5] = td;
+                            case "CEAP_Gun_Generic":
+                                genericRifle = td;
                                 break;
                             default:
                                 break;
@@ -271,16 +310,16 @@ namespace CEAP
                         apparelList.Add(td);
                         continue;
                     }
-                    //if (td.IsPawn?)
+                    /*else if (td.IsPawn?)
                     {
-                        //animalList.Add(td);
-                        //continue;
-                    }
-                    //if (td.IsAlien?)
+                        animalList.Add(td);
+                        continue;
+                    }*/
+                    /*else if (td.IsAlien?)
                     {
-                        //alienList.Add(td);
-                        //continue;
-                    }
+                        alienList.Add(td);
+                        continue;
+                    }*/
                     if (td.thingClass.ToString().Contains("TurretGun"))
                     {
                         turretList.Add(td);
@@ -337,10 +376,16 @@ namespace CEAP
                             //here's where we put the ranged weapon patch logic
 
                             ScrapeGunStats(weapon);
-                            //ScrapVerb(weapon); //TODO implement
+                            ScrapeVerb(weapon);
                             PatchStatBases(weapon);
-
+                            PatchVerb(weapon);
+                            AddCompsAmmoUser(weapon);
+                            AddCompsFireModes(weapon);
+                            //GenerateAmmo(weapon);
+                            PatchGunTools(weapon);
+                            PatchModExtensions(weapon);
                             
+
                             /*if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootOneUse")
                                || weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootLaunch Projectile"))
                             {
@@ -352,40 +397,18 @@ namespace CEAP
                                 weapon.comps.Add(ammoUser);
                             }*/
 
-                            //Add comps CombatExtended.CompProperties_FireModes
-                            //PatchVerb TODO implement
-                            //GenerateAmmo(weapon); implement
-                            //PatchTools TODO implement CombatExtended.ToolCE (melee options)
 
                             //TODO might need separate if blocks for each of the vanilla verbs
 
                             ClearGunStats();
-                        }
-                        else if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("CombatExtended.Verb_ShootCE"))
-                        {
-                            //TEST CODE
-                            //Logger.Message("Gun: " + weapon.defName + " uses ammoset: ");
-                            /*int iAS = weapon.comps.FindIndex(i => i.compClass.ToString().Equals("CombatExtended.CompAmmoUser"));
-                            CompProperties_AmmoUser cp_au;
-
-                            if (iAS >= 0)
-                            {
-
-                                cp_au = (CompProperties_AmmoUser)weapon.comps[iAS];
-                                //asd = cp_au.ammoSet;
-                                //Logger.Message(asd.ToString());
-                                //Logger.Message("Next step is to make it " + genericAmmoSet.ToString());
-                                //cp_au.ammoSet = (AmmoSetDef)genericAmmoSet;
-                                //CompProperties_AmmoUser cp_au = (CompProperties_AmmoUser)weapon.comps[weapon.comps.FindIndex(i => i.compClass.ToString().Equals("CombatExtended.CompAmmoUser"))];
-                                cp_au.ammoSet = genericAmmoSet;
-                            }*/
-
                         }
 
                     }
                     else if (weapon.IsMeleeWeapon)
                     {
                         //TODO: check if already CE-compatible, not sure how
+                        //update: melee attacks are a list of tools. CE tools have class CombatExtended.ToolCE. Any tool without that must be patched
+                        //most also have equippedStatOffsets MeleeCritChance MeleeParryChance and MeleeDodgeChance, but these are not required
                         //TODO: if not, add CE stats, remove vanilla stats
                         defsPatched++;
                     }
@@ -406,23 +429,101 @@ namespace CEAP
             EndPatch("WEAPONS");
         }
 
+        private void PatchModExtensions(ThingDef weapon)
+        {
+            if (weapon.modExtensions==null)
+            {
+                weapon.modExtensions = new List<DefModExtension>();
+            }
+            weapon.modExtensions.Add(genericRifle.modExtensions[0]); //TODO: change values before adding
+        }
+
+        private void PatchGunTools(ThingDef weapon)
+        {
+            weapon.tools = genericRifle.tools; //TODO generate new tools based on gunType
+        }
+
+        private void PatchVerb(ThingDef weapon)
+        {
+            Type oldVerbClass = weapon.Verbs[0].verbClass;
+            VerbPropertiesCE newVPCE = new VerbPropertiesCE();
+            if (oldVerbClass.ToString().Equals("Verse.Verb_Shoot"))
+            {
+                //PropertyCopier<VerbProperties,VerbPropertiesCE>.Copy(weapon.Verbs[0], newVPCE);
+                newVPCE.verbClass = typeof(CombatExtended.Verb_ShootCE);
+                newVPCE.label = verbLabel;
+                newVPCE.soundCast = soundCast;
+                newVPCE.soundCastTail = soundCastTail;
+                newVPCE.soundAiming = soundAiming;
+                newVPCE.muzzleFlashScale = muzzleFlashScale;
+                newVPCE.hasStandardCommand = hasStandardCommand;
+                newVPCE.range = gunRange;
+                newVPCE.ticksBetweenBurstShots = ticksBetweenBurstShots;
+                newVPCE.warmupTime = warmupTime;
+                newVPCE.targetParams = targetParams;
+                newVPCE.rangedFireRulepack = rangedFireRulepack;
+                newVPCE.ai_IsBuildingDestroyer = ai_IsBuildingDestroyer;
+                newVPCE.ai_AvoidFriendlyFireRadius = ai_AvoidFriendlyFireRadius;
+                newVPCE.onlyManualCast = onlyManualCast;
+                newVPCE.stopBurstWithoutLos = stopBurstWithoutLos;
+
+                weapon.Verbs[0] = newVPCE;
+            }
+        }
+
+        private void ScrapeVerb(ThingDef weapon) //TODO probably refactor PatchVerb to just get the values itself. Will reduce operations by half
+        {
+            VerbProperties vp = weapon.Verbs[0];
+            verbLabel = vp.label;
+            soundCast = vp.soundCast;
+            soundCastTail = vp.soundCastTail;
+            soundAiming = vp.soundAiming;
+            muzzleFlashScale = vp.muzzleFlashScale;
+            hasStandardCommand = vp.hasStandardCommand;
+            gunRange = vp.range;
+            forcedMissRadius = vp.ForcedMissRadius; //not used by Verb_ShootCE
+            ticksBetweenBurstShots = vp.ticksBetweenBurstShots;
+            burstShotCountV = vp.burstShotCount;
+            warmupTime = vp.warmupTime;
+            targetParams = vp.targetParams;
+            rangedFireRulepack = vp.rangedFireRulepack;
+            ai_IsBuildingDestroyer = vp.ai_IsBuildingDestroyer;
+            ai_AvoidFriendlyFireRadius = vp.ai_AvoidFriendlyFireRadius;
+            onlyManualCast = vp.onlyManualCast;
+            stopBurstWithoutLos = vp.stopBurstWithoutLos;
+            FindProjectile(weapon);
+
+            if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_Shoot"))
+            {
+
+            }
+            else if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootOneUse"))
+            {
+
+            }
+            else if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootLaunchProjectile"))
+            {
+
+            }
+            else
+            {
+                throw new Exception("Error: weapon verb not recognized");
+            }
+
+        }
+
         private void ScrapeGunStats(ThingDef weapon)
         {
-            FindProjectile(weapon);
-            //Logger.Message("Weapon: " + weapon.defName + ". Projectile: " + activeProjectile.defName);
+            FindProjectile(weapon); //TODO remove this if re-implement ScrapeVerbs
             projectileDamageType = activeProjectile.projectile.damageDef;
-            projectileDamage = activeProjectile.projectile.GetDamageAmount(1, pew);
+            projectileDamage = activeProjectile.projectile.GetDamageAmount(1, pew); //TODO learn Reflection to see if it is applicable here
             projectilePenetration = activeProjectile.projectile.GetArmorPenetration(1, pew);
-            //Logger.Message("Weapon: " + weapon.defName + ". Projectile: " + activeProjectile.defName + ". Damage: " + projectileDamage + ". Penetration: " + projectilePenetration);
             gunMass = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("Mass"))].value;
-            gunRange = weapon.Verbs[0].range;
             accuracyTouch = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyTouch"))].value;
             accuracyShort = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyShort"))].value;
             accuracyMedium = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyMedium"))].value;
             accuracyLong = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyLong"))].value;
-            forcedMissRadius = weapon.Verbs[0].ForcedMissRadius;
-            ticksBetweenBurstShots = weapon.Verbs[0].ticksBetweenBurstShots;
-            burstShotCountV = weapon.Verbs[0].burstShotCount;
+            gunTechLevel = weapon.techLevel;
         }
 
         private void FindProjectile(ThingDef weapon)
@@ -430,22 +531,80 @@ namespace CEAP
             activeProjectile = weapon.Verbs[0].defaultProjectile;
         }
 
-        private void AddCompsAmmoUser(ThingDef weapon) //TODO WIP
+        private void AddCompsAmmoUser(ThingDef weapon) //TODO WIP 
+        {
+            CombatExtended.CompProperties_AmmoUser newAUComp = new CombatExtended.CompProperties_AmmoUser();
+            newAUComp.magazineSize = burstShotCountV * 5;
+            newAUComp.reloadTime = 4f;//TODO change based on gun type
+            newAUComp.reloadOneAtATime = false; //TODO heuristic
+            newAUComp.throwMote = true; //TODO wtf is a mote
+            newAUComp.ammoSet = GenerateAmmo(weapon); //TODO finish generator method and use that instead
+            newAUComp.loadedAmmoBulkFactor = 0;
+            weapon.comps.Add(newAUComp);
+        }
+
+        private void AddCompsFireModes(ThingDef weapon) // TODO WIP 
+        {
+            //comps.Add(CombatExtended.CompProperties_FireModes)
+            CombatExtended.CompProperties_FireModes newFMComp = new CombatExtended.CompProperties_FireModes();
+            //newFMComp.compClass = typeof(CombatExtended.CompProperties_FireModes);
+            if (weapon.Verbs[0].burstShotCount > 1)
+            {
+                newFMComp.aimedBurstShotCount = (int)(weapon.Verbs[0].burstShotCount / 2); //TODO half of burst shot count
+            }
+            else
+            {
+                newFMComp.aimedBurstShotCount = 1;
+            }
+            newFMComp.aiUseBurstMode = true; //sure?
+            newFMComp.noSingleShot = false; //TODO figure out what types of CE guns don't have this
+            newFMComp.noSnapshot = false; //TODO same as above
+            newFMComp.aiAimMode = AimMode.SuppressFire; //TODO if statement based on gun type
+            weapon.comps.Add(newFMComp);
+            //Logger.Message("afterfm " +weapon.defName + " has comps:");
+        }
+
+        private void AddMoreCEComps(ThingDef weapon) // TODO there are so many, probably need a method for each eventually
         {
 
         }
 
         private void ClearGunStats()
         {
+            //clear statbases
             gunMass = 0;
-            gunRange = 0;
             accuracyTouch = 0;
             accuracyShort = 0;
             accuracyMedium = 0;
             accuracyLong = 0;
+
+            //clear verb properties
+            verbLabel = "";
+            soundCast = null;
+            soundCastTail = null;
+            soundAiming = null;
             forcedMissRadius = 0;
             ticksBetweenBurstShots = 0;
             burstShotCountV = 1;
+            warmupTime = 0;
+            muzzleFlashScale = 0;
+            hasStandardCommand = true;
+            gunRange = 0;
+            activeProjectile = null;
+            targetParams = null;
+            rangedFireRulepack = null;
+            ai_IsBuildingDestroyer = false;
+            ai_AvoidFriendlyFireRadius = 0;
+            onlyManualCast = false;
+            stopBurstWithoutLos = true;
+
+            //clear projectile properties
+            projectileDamageType = null;
+            projectileDamage = 0;
+            projectilePenetration = 0;
+
+            //clear misc properties
+            gunTechLevel = TechLevel.Undefined;
             gunType = gunTypes.Other;
         }
 
@@ -486,8 +645,8 @@ namespace CEAP
             StatModifier recoil = new StatModifier();
             recoil.stat = StatDef.Named("Recoil");
             //ReloadTime: in seconds
-            StatModifier reloadTime = new StatModifier();
-            reloadTime.stat = StatDef.Named("ReloadTime");
+            //StatModifier reloadTime = new StatModifier();
+            //reloadTime.stat = StatDef.Named("ReloadTime");
 
 
             float gunTechModFlat = (((float)weapon.techLevel - (float)TechLevel.Industrial) * 0.1f);
@@ -503,14 +662,14 @@ namespace CEAP
                     shotSpread.value = 1f;
                     swayFactor.value = 2f;
                     gunBulk.value = 2f * gunMass;
-                    reloadTime.value = 1f;
+                    //reloadTime.value = 1f;
                     break;
                 case gunTypes.Pistol:
                     shotSpread.value = (0.2f - ssAccuracyMod) * gunTechModPercent;
                     sightsEfficiency.value = 0.7f + gunTechModFlat;
                     swayFactor.value = gunMass * 0.9f;
                     gunBulk.value = 1f * gunMass;
-                    reloadTime.value = 4f;
+                    //reloadTime.value = 4f;
                     break;
                 case gunTypes.SMG:
                     shotSpread.value = (0.17f - ssAccuracyMod) * gunTechModPercent;
@@ -518,14 +677,14 @@ namespace CEAP
                     swayFactor.value = gunMass * 0.8f;
                     gunBulk.value = 1f * gunMass;
                     recoil.value = (2f - (gunMass * 0.1f)) * recoilTechMod;
-                    reloadTime.value = 4f;
+                    //reloadTime.value = 4f;
                     break;
                 case gunTypes.Shotgun:
                     shotSpread.value = (0.17f - ssAccuracyMod) * gunTechModPercent;
                     sightsEfficiency.value = seDefault;
                     swayFactor.value = gunMass * 0.4f;
                     gunBulk.value = 2f * gunMass;
-                    reloadTime.value = 4f;
+                    //reloadTime.value = 4f;
                     break;
                 case gunTypes.Rifle:
                     shotSpread.value = (0.13f - ssAccuracyMod) * gunTechModPercent;
@@ -533,7 +692,7 @@ namespace CEAP
                     swayFactor.value = gunMass * 0.35f;
                     gunBulk.value = 2f * gunMass;
                     recoil.value = (1.8f - (gunMass * 0.1f)) * recoilTechMod;
-                    reloadTime.value = 4f;
+                    //reloadTime.value = 4f;
                     break;
                 case gunTypes.MachineGun:
                     shotSpread.value = (0.13f - ssAccuracyMod) * gunTechModPercent;
@@ -541,7 +700,7 @@ namespace CEAP
                     swayFactor.value = gunMass * 0.17f;
                     gunBulk.value = 1.5f * gunMass;
                     recoil.value = (2.3f - (gunMass * 0.1f)) * recoilTechMod;
-                    reloadTime.value = 8f; //TODO placeholder, actual value will be mag size * 0.04
+                    //reloadTime.value = 8f; //TODO placeholder, actual value will be mag size * 0.04
                     break;
                 case gunTypes.Sniper:
                     shotSpread.value = (0.1f - ssAccuracyMod) * gunTechModPercent;
@@ -604,7 +763,7 @@ namespace CEAP
             newStatBases.Add(ticksBBS);
             newStatBases.Add(burstShotCount);
             newStatBases.Add(recoil);
-            newStatBases.Add(reloadTime);
+            //newStatBases.Add(reloadTime);
 
             weapon.statBases = newStatBases;
         }
@@ -806,122 +965,380 @@ namespace CEAP
         private void PatchAnimals(List<ThingDef> animals)
         {
             BeginPatch("ANIMALS");
-            try
+            foreach (ThingDef animal in animals)
             {
-                foreach (ThingDef animal in animals)
+                //TODO: check if CE compatible somehow
+                try
                 {
-                    //TODO check if CE-compatible
+
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex.ToString());
+                    defsFailed++;
+                }
+                finally
+                {
+                    EndPatch("ANIMALS");
                 }
             }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-                defsFailed++;
-            }
-            finally
-            {
-                EndPatch("ANIMALS");
-            }
+            
         }
 
         private void PatchAliens(List<ThingDef> aliens)
         {
             BeginPatch("ALIENS");
-            try
+            foreach (ThingDef alien in aliens)
             {
-                foreach (ThingDef alien in aliens)
+                //TODO check if CE compatible - use melee verbs as reference?
+                //fix melee verbs
+                //fix built-in ranged attacks
+                //fix natural armor values
+                //something to do with organs?
+                //don't forget to make sure they carry the right ammo
+                try
                 {
-                    //TODO check if CE compatible
-                    //don't forget to make sure they carry the right ammo
+
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex.ToString());
+                    defsFailed++;
+                }
+                finally
+                {
+                    EndPatch("ALIENS");
                 }
             }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-                defsFailed++;
-            }
-            finally
-            {
-                EndPatch("ALIENS");
-            }
+            
         }
 
         private void PatchTurrets(List<ThingDef> turrets)
         {
             BeginPatch("TURRETS");
-            try
+            foreach (ThingDef turret in turrets)
             {
-                foreach (ThingDef turret in turrets)
+                defsTotal++;
+                try
                 {
-                    defsTotal++;
                     if (turret.fillPercent < 0.85)
                     {
                         turret.fillPercent = 0.85f;
                         defsPatched++;
                     }
-                    //TODO: remove <comps><Class=CompProperties_Reguelable> and make it use ammo instead
                 }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex.ToString());
+                    defsFailed++;
+                }
+                //TODO: remove <comps><Class=CompProperties_Reguelable> and make it use ammo instead
+                //UPDATE: I have no idea what I meant to say above
             }
-            catch (Exception ex)
-            {
-                Logger.Error(ex.ToString());
-                defsFailed++;
-            }
-            finally
-            {
-                EndPatch("TURRETS");
-            }
+            EndPatch("TURRETS");
+
         }
 
-        private AmmoSetDef GenerateAmmo(ThingDef needsAmmo) //TODO WIP
+
+        public AmmoSetDef GenerateAmmo(ThingDef weapon) //TODO WIP
         {
             AmmoSetDef newAmmoSet = new AmmoSetDef();
-            newAmmoSet.ammoTypes.Add(MakeAmmoLink(needsAmmo));
+            List<AmmoLink> newAmmoLinks = new List<AmmoLink>();
+            List<AmmoDef> newAmmos = new List<AmmoDef>();
+            List<ThingDef> newProjectiles = new List<ThingDef>();
 
+            newAmmoSet.defName = ("CEAP_Ammo_For_" + weapon.defName);
+            newAmmoSet.label = ("Ammo set for " + weapon.label);
+            newAmmoSet.description = ("A procedurally-generated ammo set for the " + weapon.label);
+            
+            switch (gunType)
+            {
+                /*case gunTypes.Bow:
+                    {
+                        newAmmoSet.isMortarAmmoSet = false;
+                        break;
+                    }
+                case gunTypes.Shotgun:
+                    {
+                        newAmmoSet.isMortarAmmoSet = false;
+                        break;
+                    }
+                case gunTypes.GrenadeLauncher:
+                    {
+                        newAmmoSet.isMortarAmmoSet = false;
+                        break;
+                    }
+                case gunTypes.RocketLauncher:
+                    {
+                        newAmmoSet.isMortarAmmoSet = false;
+                        break;
+                    }*/
+                default:
+                    {
+                        newAmmoSet.isMortarAmmoSet = false;
+                        if (false)//((weapon.techLevel - TechLevel.Spacer) >= 0) //TODO re-implement after testing
+                        {
+                            //charge ammo
+                        }
+                        else
+                        {
+                            for (int i = 0; i < 6; i++)
+                            {//make the projectiles
+                                ThingDef newProjectile = new ThingDef();
+                                newProjectile.graphicData = new GraphicData();
+                                ProjectilePropertiesCE newPPCE = new ProjectilePropertiesCE();
+                                SetBaseBullet(newProjectile);
+                                newProjectile.graphicData.texPath = "Things/Projectile/Bullet_Small";
+                                newProjectile.graphicData.graphicClass = typeof(Graphic_Single);
+                                newPPCE.damageDef = DamageDefOf.Bullet;
+                                newPPCE.speed = 185;
+                                newPPCE.secondaryDamage = new List<SecondaryDamage>();
+                                newPPCE.dropsCasings = true;
+                                newPPCE.explosionDamageFalloff = true;
+                                newPPCE.armorPenetrationSharp = 1; //TODO base off old projectile
+                                newPPCE.armorPenetrationBlunt = 1; //TODO base off old projectile
+                                SecondaryDamage newSDBase = new SecondaryDamage();
+                                newSDBase.def = projectileDamageType ?? DamageDefOf.Bullet;
+                                newSDBase.amount = (int)(projectileDamage + 0.5f); //since casting to int always rounds down, the extra 0.5 will make any damage x.5 essentially round up instead 
+                                newSDBase.chance = 1;
 
+                                switch (i)
+                                {
+                                    case 0:
+                                        {//FMJ
+                                            newProjectile.defName = ("CEAP_FMJ_Bullet_" + weapon.defName);
+                                            newProjectile.label = (weapon.label + " FMJ bullet");
+                                            break;
+                                        }
+                                    case 1:
+                                        {//AP
+                                            newProjectile.defName = ("CEAP_AP_Bullet_" + weapon.defName);
+                                            newProjectile.label = (weapon.label + " AP bullet");
+                                            newSDBase.amount = (int)(newSDBase.amount * 0.66f + 0.5f);
+                                            newPPCE.armorPenetrationSharp *= 2;
+                                            break;
+                                        }
+                                    case 2:
+                                        {//HP
+                                            newProjectile.defName = ("CEAP_HP_Bullet_" + weapon.defName);
+                                            newProjectile.label = (weapon.label + " HP bullet");
+                                            newSDBase.amount = (int)(newSDBase.amount * 1.33f + 0.5f);
+                                            newPPCE.armorPenetrationSharp *= 0.5f;
+                                            break;
+                                        }
+                                    case 3:
+                                        {//API
+                                            newProjectile.defName = ("CEAP_API_Bullet_" + weapon.defName);
+                                            newProjectile.label = (weapon.label + " AP-I bullet");
+                                            newSDBase.amount = (int)(newSDBase.amount * 0.66f + 0.5f);
+                                            SecondaryDamage newSD2 = new SecondaryDamage();
+                                            newSD2.def = DamageDefOf.Burn;
+                                            newSD2.amount = (int)(newSDBase.amount * 0.33f + 0.5f);
+                                            newSD2.chance = 1;
+                                            newPPCE.secondaryDamage.Add(newSD2);
+                                            newPPCE.armorPenetrationSharp *= 2;
+                                            break;
+                                        }
+                                    case 4:
+                                        {//HE
+                                            newProjectile.defName = ("CEAP_HE_Bullet_" + weapon.defName);
+                                            newProjectile.label = (weapon.label + " HE bullet");
+                                            SecondaryDamage newSD2 = new SecondaryDamage();
+                                            newSD2.def = DamageDefOf.Bomb;
+                                            newSD2.amount = (int)(newSDBase.amount * 0.66f + 0.5f);
+                                            newSD2.chance = 1;
+                                            newPPCE.secondaryDamage.Add(newSD2);
+                                            break;
+                                        }
+                                    case 5:
+                                        {//Sabot
+                                            newProjectile.defName = ("CEAP_Sabot_Bullet_" + weapon.defName);
+                                            newProjectile.label = (weapon.label + " Sabot bullet");
+                                            newSDBase.amount = (int)(newSDBase.amount * 0.5f + 0.5f);
+                                            newPPCE.armorPenetrationSharp *= 3.5f;
+                                            newPPCE.armorPenetrationBlunt *= 1.3f;
+                                            newPPCE.speed *= 1.5f;
+                                            break;
+                                        }
+                                    default:
+                                        {
+                                            break;
+                                        }
 
-            DefDatabase<AmmoSetDef>.Add(newAmmoSet);
+                                }
+
+                                newSDBase.amount += 1; //to account for the base damage being -1
+                                newPPCE.secondaryDamage.Add(newSDBase);
+                                //TODO block to convert ExtraDamages to SecondaryDamages and add them
+                                newProjectile.projectile = newPPCE;
+                                InjectedDefHasher.GiveShortHashToDef(newProjectile, typeof(ThingDef)); //TODO understand this better
+                                newProjectiles.Add(newProjectile);
+                                DefGenerator.AddImpliedDef<ThingDef>(newProjectile);
+                                //Logger.Message(weapon.defName + " " + newProjectile.defName);
+                            }
+
+                            for (int i = 0; i < 6; i++)
+                            {//make the ammos
+                                AmmoDef newAmmo = new AmmoDef();
+                                newAmmo.category = ThingCategory.Item;
+                                newAmmo.resourceReadoutPriority = ResourceCountPriority.Middle;
+                                newAmmo.useHitPoints = true;
+                                List<StatModifier> newSM = new List<StatModifier>();
+                                StatModifier mhp = new StatModifier();
+                                mhp.stat = StatDef.Named("MaxHitPoints");
+                                mhp.value = 100;
+                                newSM.Add(mhp);
+                                StatModifier beauty = new StatModifier();
+                                beauty.stat = StatDef.Named("Beauty");
+                                beauty.value = -5;
+                                newSM.Add(beauty);
+                                StatModifier flammability = new StatModifier();
+                                flammability.stat = StatDef.Named("Flammability");
+                                flammability.value = 1;
+                                newSM.Add(flammability);
+                                StatModifier deteriorationRate = new StatModifier();
+                                deteriorationRate.stat = StatDef.Named("DeteriorationRate");
+                                deteriorationRate.value = 2;
+                                newSM.Add(deteriorationRate);
+                                StatModifier ms = new StatModifier();
+                                ms.stat = StatDef.Named("Mass");
+                                ms.value = 0.013f;
+                                newSM.Add(ms);
+                                StatModifier bk = new StatModifier();
+                                bk.stat = StatDef.Named("Bulk");
+                                bk.value = 0.02f;
+                                newSM.Add(bk);
+                                StatModifier mv = new StatModifier(); //gets added at the end
+                                mv.stat = StatDef.Named("MarketValue");
+                                mv.value = 0.06f;
+                                newSM.Add(mv);
+                                newAmmo.statBases = newSM;
+                                newAmmo.selectable = true;
+                                newAmmo.altitudeLayer = AltitudeLayer.Item;
+                                newAmmo.stackLimit = 5000;
+                                newAmmo.soundInteract = genericAmmos[0].soundInteract;
+                                newAmmo.soundDrop = genericAmmos[0].soundDrop;
+                                newAmmo.comps = new List<CompProperties>(); ;
+                                newAmmo.comps.Add(new CompProperties(typeof(CompProperties_Forbiddable)));
+                                newAmmo.alwaysHaulable = true;
+                                newAmmo.drawGUIOverlay = true;
+                                newAmmo.rotatable = false;
+                                newAmmo.pathCost = 15;
+                                newAmmo.tradeTags = new List<string>();
+                                newAmmo.tradeTags.Add("CE_Ammo");
+                                newAmmo.tradeability = Tradeability.All;
+                                newAmmo.tickerType = TickerType.Normal;
+                                newAmmo.cookOffSpeed = 0.2f;
+                                newAmmo.cookOffFlashScale = 10;
+                                newAmmo.cookOffSound = genericAmmos[0].cookOffSound;
+                                newAmmo.cookOffTailSound = genericAmmos[0].cookOffTailSound;
+                                newAmmo.techLevel = TechLevel.Industrial;
+                                newAmmo.thingCategories = genericAmmos[0].thingCategories; // TODO not sure if I need to generate a new unique category for each ammo. Maybe?
+                                //TODO if (CE ammo  system is enabled)
+                                newAmmo.menuHidden = false; //Hides from spawning in debug menu; CE AmmoInjector.cs toggles this based on mod settings
+                                newAmmo.destroyOnDrop = false; //deletes if dropped on ground; CE AmmoInjector.cs toggles this based on mod settings 
+                                newAmmo.tradeTags.Add("CE_AutoEnableTrade"); //sets tradeability
+                                newAmmo.tradeTags.Add("CE_AutoEnableCrafting"); //injects recipes
+                                //TODO end of lines that need to be changed if ammo system is disabled
+                                newAmmo.graphicData = new GraphicData();
+                                newAmmo.graphicData.texPath = genericAmmos[i].graphicData.texPath;
+                                newAmmo.graphicData.graphicClass = genericAmmos[i].graphicData.graphicClass;
+                                newAmmo.ammoClass = genericAmmos[0].ammoClass;
+                                newAmmo.cookOffProjectile = newProjectiles[i];
+                                newAmmo.detonateProjectile = newProjectiles[i];
+
+                                switch (i)
+                                {
+                                    case 0:
+                                        {//FMJ
+                                            newAmmo.defName = ("CEAP_FMJ_Ammo_" + weapon.defName);
+                                            newAmmo.label = ("FMJ Ammo for the " + weapon.label);
+                                            newAmmo.description = ("Full metal jacket ammo for the " + weapon.label + ". Balanced on damage and penetration.");
+                                            break;
+                                        }
+                                    case 1:
+                                        {//AP
+                                            newAmmo.defName = ("CEAP_AP_Ammo_" + weapon.defName);
+                                            newAmmo.label = ("AP Ammo for the " + weapon.label);
+                                            newAmmo.description = ("Armor piercing ammo for the " + weapon.label + ". Reduced damage, but increased sharp penetration.");
+                                            break;
+                                        }
+                                    case 2:
+                                        {//HP
+                                            newAmmo.defName = ("CEAP_HP_Ammo_" + weapon.defName);
+                                            newAmmo.label = ("HP Ammo for the " + weapon.label);
+                                            newAmmo.description = ("Hollow point ammo for the " + weapon.label + ". Increased damage, but reduced sharp penetration.");
+                                            break;
+                                        }
+                                    case 3:
+                                        {//API
+                                            newAmmo.defName = ("CEAP_API_Ammo_" + weapon.defName);
+                                            newAmmo.label = ("AP-I Ammo for the " + weapon.label);
+                                            newAmmo.description = ("Incendiary ammo for the " + weapon.label + ". Decreased base damage, but adds burn.");
+                                            mv.value *= 2;
+                                            break;
+                                        }
+                                    case 4:
+                                        {//HE
+                                            newAmmo.defName = ("CEAP_HE_Ammo_" + weapon.defName);
+                                            newAmmo.label = ("HE Ammo for the " + weapon.label);
+                                            newAmmo.description = ("High explosive ammo for the " + weapon.label + ". Deals bonus bomb damage.");
+                                            mv.value *= 2;
+                                            break;
+                                        }
+                                    case 5:
+                                        {//Sabot
+                                            newAmmo.defName = ("CEAP_Sabot_Ammo_" + weapon.defName);
+                                            newAmmo.label = ("Sabot Ammo for the " + weapon.label);
+                                            newAmmo.description = ("Sabot ammo for the " + weapon.label + ". Reduced damage, but greatly increased sharp penetration.");
+                                            mv.value *= 2;
+                                            break;
+                                        }
+                                    default:
+                                        {
+                                            break;
+                                        }
+                                }
+                                InjectedDefHasher.GiveShortHashToDef(newAmmo, typeof(AmmoDef));
+                                newAmmos.Add(newAmmo);
+                                DefGenerator.AddImpliedDef<AmmoDef>(newAmmo);
+                                //Logger.Message(weapon.defName + " " + newAmmo.defName);
+                            }
+                        }
+                        break;
+                    }
+
+            }
+
+            for (int i = 0; i < newAmmos.Count; i++)
+            {
+                newAmmos[i].projectile = newProjectiles[i].projectile;
+                AmmoLink al = new AmmoLink(newAmmos[i],newProjectiles[i]);
+                newAmmoLinks.Add(al);
+            }
+
+            newAmmoSet.ammoTypes = newAmmoLinks;
+            InjectedDefHasher.GiveShortHashToDef(newAmmoSet, typeof(Def)); //TODO understand this better
+            DefGenerator.AddImpliedDef<AmmoSetDef>(newAmmoSet);
+            //Logger.Message(weapon.defName + " " + newAmmoSet.defName);
             return newAmmoSet;
         }
 
-        private AmmoLink MakeAmmoLink(ThingDef weapon) //TODO WIP
+        private void SetBaseBullet(ThingDef bullet)
         {
-            AmmoLink newAmmoLink = new AmmoLink();
-
-            return null;
+            bullet.category = ThingCategory.Projectile;
+            bullet.tickerType = TickerType.Normal;
+            bullet.altitudeLayer = AltitudeLayer.Projectile;
+            bullet.thingClass = typeof(CombatExtended.BulletCE);
+            bullet.useHitPoints = false;
+            bullet.neverMultiSelect = true;
+            bullet.graphicData.shaderType = ShaderTypeDefOf.Transparent;
         }
 
-        private AmmoDef MakeAmmo(ThingDef weapon) //TODO WIP
-        {
-            AmmoDef newAmmo = new AmmoDef();
-            newAmmo.defName = ("CEAP_auto_" + weapon.defName);
-            newAmmo.label = ("Ammo for " + weapon.label);
-            newAmmo.description = ("An automatically-generated ammo for " + weapon.label);
-            DefDatabase<AmmoDef>.Add(newAmmo);
-            return newAmmo;
-        }
-
-        private RecipeDef MakeReciple(AmmoDef ammo)
+        private RecipeDef MakeRecipe(AmmoDef ammo)
         {
             return null; //TODO
         }
-
-        private ThingDef MakeProjectile()
-        {
-            return null;
-        }
-
-        //FAILURE, the duplicator I found only works on Serializable objects
-        /*private void GenerateTest(ThingDef testDef)
-        {
-            Logger.Message("Duplication starting on "+testDef.label);
-            ThingDef clone = new ThingDef();
-            clone.defName = testDef.defName + "_2";
-            clone.label = "mufuckin clone of " + testDef.label;
-            clone.description = "If "+ testDef.label + " was so good, why didn't they make a " + testDef.label + " 2?";
-            Logger.Message("Clone " + clone.defName + " is labeled " + clone.label + " and exists dammit!");
-            DefDatabase<ThingDef>.Add(clone);
-        }*/
 
         public void ProcessSettings()
         {
@@ -967,5 +1384,35 @@ namespace CEAP
 
         public string MissingMod { get; }
         public Exception Inner { get; }
+    }
+
+    public class PropertyCopier<TParent, TChild> where TParent : class //this has failed to work, TODO remove
+                                            where TChild : class
+    {
+        public static void Copy(TParent parent, TChild child)
+        {
+            var parentProperties = parent.GetType().GetProperties();
+            var childProperties = child.GetType().GetProperties();
+
+            foreach (var parentProperty in parentProperties)
+            {
+                foreach (var childProperty in childProperties)
+                {
+                    if (parentProperty.Name == childProperty.Name && parentProperty.PropertyType == childProperty.PropertyType)
+                    {
+                        try
+                        {
+                            childProperty.SetValue(child, parentProperty.GetValue(parent));
+                            break;
+                        }
+                        catch(Exception ex)
+                        {
+                            continue;
+                        }
+                        
+                    }
+                }
+            }
+        }
     }
 }
