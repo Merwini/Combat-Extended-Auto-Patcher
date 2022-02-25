@@ -109,7 +109,7 @@ namespace CEAP
 
         //will be used to store references to the generic ammoset def
         //public AmmoSetDef genericAmmoSet;
-        public ThingDef genericRifle;
+        public ThingDef rifleRef;
 
         //will be used to store references to the generic ammo defs
         //TODO a 2d array is probably better but this is much more readable/maintainable?
@@ -404,12 +404,12 @@ namespace CEAP
                 {
                     //finds the generic ammos and stores references to them
                     //TODO refactor, try should be inside the foreach loop
-                    if (td.defName.Contains("CEAP")) //TODO use a FindIndex instead of foreach unless I end up needing to find more
+                    if (td.defName.Contains("Gun")) //TODO use a FindIndex instead of foreach unless I end up needing to find more
                     {
                         switch (td.defName)
                         {
-                            case "CEAP_Gun_Generic":
-                                genericRifle = td;
+                            case "Gun_AssaultRifle": //formerly used CEAP_Gun_Generic
+                                rifleRef = td;
                                 break;
                             default:
                                 break;
@@ -483,7 +483,6 @@ namespace CEAP
             {
                 try
                 {
-                    defsTotal++;
                     if (weapon.IsRangedWeapon)
                     {
                         //any patched ranged weapons will have their original verbs removed and the CE one added, so we can find unpatched ranged weapons by checking their verbs
@@ -499,6 +498,7 @@ namespace CEAP
                                                         return false;
                                                 }))
                         {
+                            defsTotal++;
                             //TODO:
                             //add/remove statBases
                             //generate ammo
@@ -511,7 +511,6 @@ namespace CEAP
                             //add CE melee attacks for ranged weapons
                             //defsPatched++;
                             //here's where we put the ranged weapon patch logic
-
                             ScrapeGunStats(weapon);
                             PatchStatBases(weapon);
                             PatchVerb(weapon);
@@ -537,6 +536,7 @@ namespace CEAP
                             //TODO might need separate if blocks for each of the vanilla verbs
 
                             ClearGunStats();
+                            defsPatched++;
                         }
 
                     }
@@ -546,7 +546,6 @@ namespace CEAP
                         //update: melee attacks are a list of tools. CE tools have class CombatExtended.ToolCE. Any tool without that must be patched
                         //most also have equippedStatOffsets MeleeCritChance MeleeParryChance and MeleeDodgeChance, but these are not required
                         //TODO: if not, add CE stats, remove vanilla stats
-                        defsPatched++;
                     }
                     else
                     {
@@ -571,12 +570,12 @@ namespace CEAP
             {
                 weapon.modExtensions = new List<DefModExtension>();
             }
-            weapon.modExtensions.Add(genericRifle.modExtensions[0]); //TODO: change values before adding
+            weapon.modExtensions.Add(rifleRef.modExtensions[0]); //TODO: change values before adding
         }
 
         private void PatchGunTools(ThingDef weapon)
         {
-            weapon.tools = genericRifle.tools; //TODO different tools based on gunType
+            weapon.tools = rifleRef.tools; //TODO different tools based on gunType
         }
 
         private void PatchVerb(ThingDef needsVerbs)
@@ -584,7 +583,7 @@ namespace CEAP
             bool isAPawn = typeof(Pawn).IsAssignableFrom(needsVerbs.thingClass);
 
             List<VerbProperties> newVerbs = new List<VerbProperties>();
-            int verbCounter = 0;
+            //int verbCounter = 0;
             foreach (VerbProperties vp in needsVerbs.Verbs)
             {
                 try
@@ -611,22 +610,26 @@ namespace CEAP
                         //newVPCE.ForcedMissRadius = vp.ForcedMissRadius; //not used by Verb_ShootCE
                         newVPCE.burstShotCount = vp.burstShotCount;
                         activeProjectile = vp.defaultProjectile;
-                        //FindProjectile(vp);
+                        newVPCE.defaultProjectile = vp.defaultProjectile;
+                        newVPCE.defaultProjectile.thingClass = typeof(CombatExtended.BulletCE);
+                        newVPCE.defaultProjectile.projectile = ConvertPP(newVPCE.defaultProjectile.projectile);
+                        FindProjectile(needsVerbs);
+                        /*if (vp.verbClass.ToString().Equals("Verse.Verb_ShootOneUse"))
+                            {
+                                TODO extra logic for other verbs
+                            }*/
+                        /*if (vp.verbClass.ToString().Equals("Verse.Verb_LaunchProjectile"))
+                            {
+                                TODO
+                            }*/
+                        newVerbs.Add(newVPCE);
                     }
-                    /*if (vp.verbClass.ToString().Equals("Verse.Verb_ShootOneUse"))
+                    else
                     {
-                    TODO
-                    }*/
-                    /*if (vp.verbClass.ToString().Equals("Verse.Verb_LaunchProjectile"))
-                    {
-                    TODO
-                    }*/
-                    /*else
-                    {
-                        //unrecognized verb exception
-                    }*/
+                        newVerbs.Add(vp);
+                    }
+                    
 
-                    newVerbs.Add(newVPCE);
                 }
                 catch (Exception ex)
                 {
@@ -634,7 +637,7 @@ namespace CEAP
                 }
                 finally
                 {
-                    verbCounter++;
+                    //verbCounter++;
                 }
 
             }
@@ -642,6 +645,58 @@ namespace CEAP
             {
                 needsVerbs.Verbs[i] = newVerbs[i];
             }
+        }
+
+        private ProjectilePropertiesCE ConvertPP(ProjectileProperties ppHolder)
+        {
+            ProjectilePropertiesCE ppceHolder = new ProjectilePropertiesCE();
+            ppceHolder.speed = ppHolder.speed;
+            ppceHolder.ai_IsIncendiary = ppHolder.ai_IsIncendiary;
+            ppceHolder.explosionEffect = ppHolder.explosionEffect;
+            ppceHolder.explosionDamageFalloff = ppHolder.explosionDamageFalloff;
+            ppceHolder.explosionChanceToStartFire = ppHolder.explosionChanceToStartFire;
+            ppceHolder.applyDamageToExplosionCellsNeighbors = ppHolder.applyDamageToExplosionCellsNeighbors;
+            ppceHolder.postExplosionSpawnThingCount = ppHolder.postExplosionSpawnThingCount;
+            ppceHolder.postExplosionSpawnChance = ppHolder.postExplosionSpawnChance;
+            ppceHolder.postExplosionSpawnThingDef = ppHolder.postExplosionSpawnThingDef;
+            ppceHolder.preExplosionSpawnChance = ppHolder.preExplosionSpawnChance;
+            ppceHolder.preExplosionSpawnThingDef = ppHolder.preExplosionSpawnThingDef;
+            ppceHolder.preExplosionSpawnThingCount = ppHolder.preExplosionSpawnThingCount;
+            ppceHolder.explosionDelay = ppHolder.explosionDelay;
+            ppceHolder.soundAmbient = ppHolder.soundAmbient;
+            ppceHolder.flyOverhead = ppHolder.flyOverhead;
+            ppceHolder.explosionRadius = ppHolder.explosionRadius;
+            ppceHolder.damageDef = ppHolder.damageDef; // TODO DamageDefOf.Stun seems to not actually injure the target, just stun them. might need to account for that
+            ppceHolder.stoppingPower = ppHolder.stoppingPower;
+            ppceHolder.armorPenetrationBlunt = 1;
+            ppceHolder.armorPenetrationSharp = 1; //TODO maybe change these?
+            ppceHolder.alwaysFreeIntercept = ppHolder.alwaysFreeIntercept;
+            ppceHolder.shadowSize = ppHolder.shadowSize;
+            ppceHolder.soundHitThickRoof = ppHolder.soundHitThickRoof;
+            ppceHolder.soundExplode = ppHolder.soundExplode;
+            ppceHolder.soundImpactAnticipate = ppHolder.soundImpactAnticipate;
+            ppceHolder.arcHeightFactor = ppHolder.arcHeightFactor;
+            SetDamage(ppceHolder, ppHolder.GetDamageAmount(1f, null));
+            ppceHolder.secondaryDamage = ExtraToSecondary(ppHolder.extraDamages);
+            return ppceHolder;
+        }
+
+        private static List<SecondaryDamage> ExtraToSecondary(List<ExtraDamage> ed)
+        {
+            List<SecondaryDamage> newSDList = new List<SecondaryDamage>();
+            if (!(ed == null) && !(ed.Count == 0))
+            {
+                for (int i = 0; i < ed.Count; i++)
+                {
+                    SecondaryDamage newSD = new SecondaryDamage();
+                    newSD.def = ed[i].def;
+                    newSD.amount = (int)(ed[i].amount + 0.5f); //extra 0.5f is because casting to int is a floor round
+                    newSD.chance = ed[i].chance;
+                    newSDList.Add(newSD);
+                }
+            }
+
+            return newSDList;
         }
 
         private void ScrapeGunStats(ThingDef weapon)
@@ -958,12 +1013,12 @@ namespace CEAP
                     
             foreach (ThingDef apparel in apparels)
             {
-                defsTotal++;
                 float newBulk = 0f;
                 float newWornBulk = 0f;
                 float techMult = 1f;
                 try
                 {
+                    defsTotal++;
                     if (apparel.statBases.FindIndex(wob => wob.ToString().Contains("Bulk")) == -1) //unpatched apparel (or poorly made patches) will have no Bulk element in its statBases list
                     {
                         switch (apparel.techLevel)
@@ -1144,18 +1199,16 @@ namespace CEAP
                 //don't forget to make sure they carry the right ammo
                 try
                 {
-                    Logger.Message(alien.defName);
+                    defsTotal++;
                     int tempIndexSharp = alien.statBases.FindIndex(ars => ars.ToString().Contains("ArmorRating_Sharp"));
                     int tempIndexBlunt = alien.statBases.FindIndex(ars => ars.ToString().Contains("ArmorRating_Blunt"));
 
                     if (tempIndexSharp >= 0)
                     {
-                        Logger.Message("Sharp armor:" + alien.statBases[tempIndexSharp].value.ToString());
                         alien.statBases[tempIndexSharp].value *= sharpMult;
                     }    
                     if (tempIndexBlunt >= 0)
                     {
-                        Logger.Message("Blunt armor:" + alien.statBases[tempIndexBlunt].value.ToString());
                         alien.statBases[tempIndexBlunt].value *= bluntMult;
                     }
                     List<Tool> newTools = new List<Tool>();
@@ -1182,18 +1235,22 @@ namespace CEAP
                     {
                         VerbPropertiesCE newVerb = new VerbPropertiesCE();
                     }
+
+                    PatchVerb(alien);
+                    defsPatched++;
                 }
                 catch (Exception ex)
                 {
                     Logger.Error(ex.ToString());
+                    failureList.AppendLine(alien.defName);
                     defsFailed++;
+                    continue;
                 }
                 finally
                 {
-                    EndPatch("ALIENS");
                 }
             }
-            
+            EndPatch("ALIENS");
         }
 
         private void PatchTurrets(List<ThingDef> turrets)
@@ -1310,7 +1367,7 @@ namespace CEAP
                                         {//AP
                                             newProjectile.defName = ("CEAP_AP_Bullet_" + weapon.defName);
                                             newProjectile.label = (weapon.label + " AP bullet");
-                                            damageHolder = (int)(damageHolder * 0.66f +0.5f);
+                                            damageHolder = (int)(damageHolder * 0.66f + 0.5f);
                                             //newSDBase.amount = (int)(newSDBase.amount * 0.66f + 0.5f);
                                             newPPCE.armorPenetrationSharp *= 2;
                                             break;
@@ -1367,10 +1424,7 @@ namespace CEAP
 
                                 }
 
-                                //experimental reflection attempt
-                                Type tpp = typeof(ProjectileProperties);
-                                FieldInfo dab = tpp.GetField("damageAmountBase", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                                dab.SetValue(newPPCE, (int)damageHolder);
+                                SetDamage(newPPCE, damageHolder);
 
                                 //newSDBase.amount += 1; //to account for the base damage being -1
                                 //newPPCE.secondaryDamage.Add(newSDBase);
@@ -1451,17 +1505,7 @@ namespace CEAP
                                         }
                                 }
 
-                                //finish the recipe
-                                newRecipe.defName = "Make" + newAmmo.defName;
-                                newRecipe.label = "make " + newAmmo.label + " cartridge x500";
-                                newRecipe.description = "Craft 500 " + newAmmo.label + " cartridges.";
-                                newRecipe.jobString = "Making " + newAmmo.label + " cartridges.";
-                                newRecipe.ingredients = ammoRecipeRefs[0][i].ingredients;
-                                newRecipe.fixedIngredientFilter = ammoRecipeRefs[0][i].fixedIngredientFilter;
-                                newRecipe.products = new List<ThingDefCountClass>();
-                                newRecipe.products.Add(new ThingDefCountClass(newAmmo, 500));
-                                InjectedDefHasher.GiveShortHashToDef(newRecipe, typeof(RecipeDef));
-                                DefGenerator.AddImpliedDef<RecipeDef>(newRecipe);
+                                
 
 
                                 newAmmo.thingCategories = new List<ThingCategoryDef>();
@@ -1470,6 +1514,19 @@ namespace CEAP
                                 newAmmos.Add(newAmmo);
                                 DefGenerator.AddImpliedDef<AmmoDef>(newAmmo);
                                 //Logger.Message(weapon.defName + " " + newAmmo.defName);
+
+                                //finish the recipe
+                                newRecipe.defName = "Make" + newAmmo.defName;
+                                newRecipe.label = "make " + newAmmo.label + " cartridge x500";
+                                newRecipe.description = "Craft 500 " + newAmmo.label + " cartridges.";
+                                newRecipe.jobString = "Making " + newAmmo.label + " cartridges.";
+                                newRecipe.ingredients = ammoRecipeRefs[0][i].ingredients;
+                                newRecipe.fixedIngredientFilter = ammoRecipeRefs[0][i].fixedIngredientFilter;
+                                newRecipe.defaultIngredientFilter = ammoRecipeRefs[0][i].defaultIngredientFilter;
+                                newRecipe.products = new List<ThingDefCountClass>();
+                                newRecipe.products.Add(new ThingDefCountClass(newAmmo, 500));
+                                InjectedDefHasher.GiveShortHashToDef(newRecipe, typeof(RecipeDef));
+                                DefGenerator.AddImpliedDef<RecipeDef>(newRecipe);
                             }
                         }
                         break;
@@ -1494,6 +1551,14 @@ namespace CEAP
             DefGenerator.AddImpliedDef<AmmoSetDef>(newAmmoSet);
             //Logger.Message(weapon.defName + " " + newAmmoSet.defName);
             return newAmmoSet;
+        }
+
+        private static void SetDamage(ProjectilePropertiesCE newPPCE, int damage)
+        {
+            //experimental reflection attempt
+            Type tpp = typeof(ProjectileProperties);
+            FieldInfo dab = tpp.GetField("damageAmountBase", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            dab.SetValue(newPPCE, (int)damage);
         }
 
         private void InitializeNewAmmo(List<ThingDef> newProjectiles, int i, out AmmoDef newAmmo, out StatModifier mv, out StatModifier ms, out StatModifier bk)
@@ -1537,6 +1602,7 @@ namespace CEAP
             newAmmo.stackLimit = 5000;
             newAmmo.soundInteract = ammoRefs[0][i].soundInteract;
             newAmmo.soundDrop = ammoRefs[0][i].soundDrop;
+            newAmmo.soundPickup = ammoRefs[0][i].soundPickup;
             newAmmo.comps = new List<CompProperties>(); ;
             newAmmo.comps.Add(new CompProperties_Forbiddable());
             newAmmo.alwaysHaulable = true;
@@ -1556,8 +1622,8 @@ namespace CEAP
                                                                       //TODO if (CE ammo  system is enabled)
             newAmmo.menuHidden = false; //Hides from spawning in debug menu; CE AmmoInjector.cs toggles this based on mod settings
             newAmmo.destroyOnDrop = false; //deletes if dropped on ground; CE AmmoInjector.cs toggles this based on mod settings 
-            newAmmo.tradeTags.Add("CE_AutoEnableTrade"); //sets tradeability
-            newAmmo.tradeTags.Add("CE_AutoEnableCrafting"); //injects recipes
+            //newAmmo.tradeTags.Add("CE_AutoEnableTrade"); //sets tradeability
+            //newAmmo.tradeTags.Add("CE_AutoEnableCrafting"); //injects recipes
                                                             //TODO end of lines that need to be changed if ammo system is disabled
             newAmmo.graphicData = new GraphicData();
             newAmmo.graphicData.texPath = ammoRefs[0][i].graphicData.texPath;
@@ -1593,6 +1659,7 @@ namespace CEAP
             newRecipe.workSkill = ammoRecipeRefs[0][0].workSkill;
             newRecipe.targetCountAdjustment = ammoRecipeRefs[0][0].targetCountAdjustment;
             newRecipe.recipeUsers = new List<ThingDef>();
+            newRecipe.recipeUsers.Add(CE_ThingDefOf.AmmoBench);
             newRecipe.conceptLearned = ammoRecipeRefs[0][0].conceptLearned;
             newRecipe.unfinishedThingDef = ammoRecipeRefs[0][0].unfinishedThingDef;
             newRecipe.ingredients = new List<IngredientCount>();
