@@ -542,6 +542,13 @@ namespace CEAP
                     }
                     else if (weapon.IsMeleeWeapon)
                     {
+                        for (int i = 0; i < weapon.tools.Count; i++)
+                        {
+                            if (!typeof(CombatExtended.ToolCE).IsAssignableFrom(weapon.tools[i].GetType()))
+                            {
+                                weapon.tools[i] = PatchTool(weapon.tools[i]);
+                            }
+                        }
                         //TODO: check if already CE-compatible, not sure how
                         //update: melee attacks are a list of tools. CE tools have class CombatExtended.ToolCE. Any tool without that must be patched
                         //most also have equippedStatOffsets MeleeCritChance MeleeParryChance and MeleeDodgeChance, but these are not required
@@ -1049,7 +1056,7 @@ namespace CEAP
                                 break;
                         }
 
-                        bool isSkin = false;
+                        //bool isSkin = false;
                         bool isMid = false;
                         bool isShell = false;
 
@@ -1063,7 +1070,7 @@ namespace CEAP
                             }
                             if (ald == ApparelLayerDefOf.OnSkin || ald.ToString().ToUpper().Contains("SKIN") || ald.ToString().ToUpper().Contains("STRAPPED"))
                             {
-                                isSkin = true;
+                                //isSkin = true;
                             }
                             if (ald == ApparelLayerDefOf.Middle || ald.ToString().ToUpper().Contains("MID"))
                             {
@@ -1163,29 +1170,6 @@ namespace CEAP
             EndPatch("APPAREL");
         }
 
-        private void PatchAnimals(List<ThingDef> animals)
-        {
-            BeginPatch("ANIMALS");
-            foreach (ThingDef animal in animals)
-            {
-                //TODO: check if CE compatible somehow
-                try
-                {
-
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error(ex.ToString());
-                    defsFailed++;
-                }
-                finally
-                {
-                    EndPatch("ANIMALS");
-                }
-            }
-            
-        }
-
         private void PatchAliens(List<ThingDef> aliens)
         {
             BeginPatch("ALIENS");
@@ -1214,18 +1198,8 @@ namespace CEAP
                     List<Tool> newTools = new List<Tool>();
                     foreach (Tool tool in alien.tools)
                     {
-                        ToolCE newToolCE = new ToolCE();
-                        newToolCE.label = tool.label;
-                        newToolCE.capacities = tool.capacities;
-                        newToolCE.power = tool.power * 2f; //x2 seems to be the general rule
-                        newToolCE.cooldownTime = tool.cooldownTime; //seems to sometimes be higher, sometimes lower. keeping same is safest
-                        newToolCE.linkedBodyPartsGroup = tool.linkedBodyPartsGroup;
-                        if (tool.armorPenetration >= 0)
-                        {
-                            newToolCE.armorPenetrationSharp = tool.armorPenetration * sharpMult;
-                            newToolCE.armorPenetrationBlunt = tool.armorPenetration * bluntMult;
-                        }
-                        
+                        ToolCE newToolCE = PatchTool(tool);
+
                         newTools.Add(newToolCE);
                     }
                     alien.tools = newTools;
@@ -1251,6 +1225,23 @@ namespace CEAP
                 }
             }
             EndPatch("ALIENS");
+        }
+
+        private ToolCE PatchTool(Tool tool)
+        {
+            ToolCE newToolCE = new ToolCE();
+            newToolCE.label = tool.label;
+            newToolCE.capacities = tool.capacities;
+            newToolCE.power = tool.power * 2f; //x2 seems to be the general rule
+            newToolCE.cooldownTime = tool.cooldownTime; //seems to sometimes be higher, sometimes lower. keeping same is safest
+            newToolCE.linkedBodyPartsGroup = tool.linkedBodyPartsGroup;
+            if (tool.armorPenetration >= 0)
+            {
+                newToolCE.armorPenetrationSharp = tool.armorPenetration * sharpMult;
+                newToolCE.armorPenetrationBlunt = tool.armorPenetration * bluntMult;
+            }
+
+            return newToolCE;
         }
 
         private void PatchTurrets(List<ThingDef> turrets)
@@ -1347,8 +1338,8 @@ namespace CEAP
                                 newPPCE.secondaryDamage = new List<SecondaryDamage>();
                                 newPPCE.dropsCasings = true;
                                 newPPCE.explosionDamageFalloff = true;
-                                newPPCE.armorPenetrationSharp = 1; //TODO base off old projectile and tech level
-                                newPPCE.armorPenetrationBlunt = 1; //TODO base off old projectile and tech level
+                                newPPCE.armorPenetrationSharp = projectilePenetration * sharpMult * 2; //TODO better formula
+                                newPPCE.armorPenetrationBlunt = projectilePenetration * bluntMult * 2; //TODO 
                                 newPPCE.flyOverhead = false;
                                 //SecondaryDamage newSDBase = new SecondaryDamage();
                                 //newSDBase.def = projectileDamageType ?? DamageDefOf.Bullet;
