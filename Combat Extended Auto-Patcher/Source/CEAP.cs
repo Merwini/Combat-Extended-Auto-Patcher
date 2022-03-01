@@ -121,6 +121,14 @@ namespace CombatExtendedAutoPatcher
                 new AmmoDef[3], //shotgun spacer ammos
                 new AmmoDef[3], //bow ammos
         };
+        public AmmoDef[][] genericAmmos = new AmmoDef[][]
+        {
+                new AmmoDef[6],
+                new AmmoDef[3],
+                new AmmoDef[4],
+                new AmmoDef[3],
+                new AmmoDef[3],
+        };
         public RecipeDef[][] ammoRecipeRefs = new RecipeDef[][]
         {
                 new RecipeDef[6], //gun industrial ammos
@@ -208,7 +216,7 @@ namespace CombatExtendedAutoPatcher
             MakeLists();
 
 
-            
+            MakeGenericAmmos();
 
             PatchWeapons(weaponList);
             PatchApparel(apparelList);
@@ -745,7 +753,7 @@ namespace CombatExtendedAutoPatcher
             //newFMComp.compClass = typeof(CombatExtended.CompProperties_FireModes);
             if (weapon.Verbs[0].burstShotCount > 1)
             {
-                newFMComp.aimedBurstShotCount = (int)(weapon.Verbs[0].burstShotCount / 2); //TODO half of burst shot count
+                newFMComp.aimedBurstShotCount = (int)(weapon.Verbs[0].burstShotCount / 2);
             }
             else
             {
@@ -1451,6 +1459,7 @@ namespace CombatExtendedAutoPatcher
                                 //Logger.Message(weapon.defName + " " + newProjectile.defName);
                             }
 
+                            /*
                             for (int i = 0; i < 6; i++)
                             {//make the ammos
                                 AmmoDef newAmmo;
@@ -1520,7 +1529,6 @@ namespace CombatExtendedAutoPatcher
                                         }
                                 }
 
-                                
 
 
                                 newAmmo.thingCategories = new List<ThingCategoryDef>();
@@ -1529,9 +1537,10 @@ namespace CombatExtendedAutoPatcher
                                 newAmmos.Add(newAmmo);
                                 DefGenerator.AddImpliedDef<AmmoDef>(newAmmo);
                                 //Logger.Message(weapon.defName + " " + newAmmo.defName);
+                            
 
-                                //finish the recipe
-                                newRecipe.defName = "Make" + newAmmo.defName;
+                            //finish the recipe
+                            newRecipe.defName = "Make" + newAmmo.defName;
                                 newRecipe.label = "make " + newAmmo.label + " cartridge x500";
                                 newRecipe.description = "Craft 500 " + newAmmo.label + " cartridges.";
                                 newRecipe.jobString = "Making " + newAmmo.label + " cartridges.";
@@ -1542,19 +1551,22 @@ namespace CombatExtendedAutoPatcher
                                 newRecipe.products.Add(new ThingDefCountClass(newAmmo, 500));
                                 InjectedDefHasher.GiveShortHashToDef(newRecipe, typeof(RecipeDef));
                                 DefGenerator.AddImpliedDef<RecipeDef>(newRecipe);
-                            }
+                            }*/
                         }
                         break;
                     }
 
             }
 
-            for (int i = 0; i < newAmmos.Count; i++)
+            //for (int i = 0; i < newAmmos.Count; i++)
+            for (int i = 0; i < genericAmmos[0].Length; i++)
             {
-                newAmmos[i].projectile = newProjectiles[i].projectile;
-                AmmoLink al = new AmmoLink(newAmmos[i],newProjectiles[i]);
+                //newAmmos[i].projectile = newProjectiles[i].projectile;
+                //AmmoLink al = new AmmoLink(newAmmos[i],newProjectiles[i]);
+                AmmoLink al = new AmmoLink(genericAmmos[0][i], newProjectiles[i]);
                 newAmmoLinks.Add(al);
-                newAmmoCat.childThingDefs.Add(newAmmos[i]);
+                //newAmmoCat.childThingDefs.Add(newAmmos[i]);
+                newAmmoCat.childThingDefs.Add(genericAmmos[0][i]);
             }
 
             newAmmoCat.treeNode = new TreeNode_ThingCategory(newAmmoCat);
@@ -1562,7 +1574,7 @@ namespace CombatExtendedAutoPatcher
             DefGenerator.AddImpliedDef<ThingCategoryDef>(newAmmoCat);
 
             newAmmoSet.ammoTypes = newAmmoLinks;
-            InjectedDefHasher.GiveShortHashToDef(newAmmoSet, typeof(Def)); //TODO understand this better
+            InjectedDefHasher.GiveShortHashToDef(newAmmoSet, typeof(Def));
             DefGenerator.AddImpliedDef<AmmoSetDef>(newAmmoSet);
             //Logger.Message(weapon.defName + " " + newAmmoSet.defName);
             return newAmmoSet;
@@ -1650,6 +1662,171 @@ namespace CombatExtendedAutoPatcher
             newAmmo.tradeTags = new List<string>();
             newAmmo.tradeTags.Add("CE_AutoEnableTrade");
             newAmmo.tradeTags.Add("CE_AutoEnableCrafting");
+        }
+
+        private void MakeGenericAmmos()
+        {//doing it in code is harder than just doing xml, but it keeps them safe from CE's ammo injector disabling/hiding them
+            MakeGunIndustrialAmmos();
+        }
+
+        private ThingCategoryDef MakeAmmoCategory()
+        {
+            ThingCategoryDef newAmmoCat = new ThingCategoryDef();
+            newAmmoCat.childThingDefs = new List<ThingDef>();
+            newAmmoCat.childCategories = new List<ThingCategoryDef>(); //TODO not sure yet if this is better to leave null or initialize empty
+            newAmmoCat.childSpecialFilters = new List<SpecialThingFilterDef>(); //TODO not sure yet if this is better to leave null or initialize empty
+            newAmmoCat.parent = ThingCategoryDef.Named("Ammo");
+            newAmmoCat.iconPath = "UI/Icons/ThingCategories/Ammo";
+            newAmmoCat.resourceReadoutRoot = false;
+
+            return newAmmoCat;
+        }
+
+        private void MakeGunIndustrialAmmos()
+        {
+            ThingCategoryDef industrialAmmoCat = MakeAmmoCategory();
+            industrialAmmoCat.defName = "CEAP_Generic_Industrial_AmmoCat";
+            industrialAmmoCat.label = "Generic Industrial Ammos";
+
+            for (int i = 0; i < ammoRefs[0].Length; i++)
+            {
+                AmmoDef newAmmo = new AmmoDef();
+                newAmmo.category = ThingCategory.Item;
+                newAmmo.resourceReadoutPriority = ResourceCountPriority.Middle;
+                newAmmo.useHitPoints = true;
+                newAmmo.statBases = new List<StatModifier>();
+                StatUtility.SetStatValueInList(ref newAmmo.statBases, StatDefOf.MaxHitPoints, 100);
+                StatUtility.SetStatValueInList(ref newAmmo.statBases, StatDefOf.Beauty, -5);
+                StatUtility.SetStatValueInList(ref newAmmo.statBases, StatDefOf.Flammability, 1);
+                StatUtility.SetStatValueInList(ref newAmmo.statBases, StatDefOf.DeteriorationRate, 2);
+                StatUtility.SetStatValueInList(ref newAmmo.statBases, StatDefOf.Mass, 0.013f);
+                StatUtility.SetStatValueInList(ref newAmmo.statBases, CE_StatDefOf.Bulk, 0.02f);
+                float mv = 0.06f;
+                if (i < 3)
+                {
+                    StatUtility.SetStatValueInList(ref newAmmo.statBases, StatDefOf.MarketValue, mv);
+                }
+                else
+                {
+                    StatUtility.SetStatValueInList(ref newAmmo.statBases, StatDefOf.MarketValue, mv*2);
+                }
+                newAmmo.selectable = true;
+                newAmmo.altitudeLayer = AltitudeLayer.Item;
+                newAmmo.stackLimit = 5000;
+                newAmmo.soundInteract = ammoRefs[0][i].soundInteract;
+                newAmmo.soundDrop = ammoRefs[0][i].soundDrop;
+                newAmmo.soundPickup = ammoRefs[0][i].soundPickup;
+                newAmmo.comps = new List<CompProperties>(); ;
+                newAmmo.comps.Add(new CompProperties_Forbiddable());
+                newAmmo.alwaysHaulable = true;
+                newAmmo.drawGUIOverlay = true;
+                newAmmo.rotatable = false;
+                newAmmo.pathCost = 15;
+                newAmmo.tradeTags = new List<string>();
+                newAmmo.tradeTags.Add("CE_Ammo");
+                newAmmo.tradeability = Tradeability.All;
+                newAmmo.tickerType = TickerType.Normal;
+                newAmmo.cookOffSpeed = 0.2f;
+                newAmmo.cookOffFlashScale = 10;
+                newAmmo.cookOffSound = ammoRefs[0][i].cookOffSound;
+                newAmmo.cookOffTailSound = ammoRefs[0][i].cookOffTailSound;
+                newAmmo.techLevel = TechLevel.Industrial;
+                newAmmo.thingCategories = ammoRefs[0][i].thingCategories; // TODO not sure if I need to generate a new unique category for each ammo. Maybe?
+                                                                          //TODO if (CE ammo  system is enabled)
+                newAmmo.menuHidden = false; //Hides from spawning in debug menu; CE AmmoInjector.cs toggles this based on mod settings
+                newAmmo.destroyOnDrop = false; //deletes if dropped on ground; CE AmmoInjector.cs toggles this based on mod settings 
+                                               //newAmmo.tradeTags.Add("CE_AutoEnableTrade"); //sets tradeability
+                                               //newAmmo.tradeTags.Add("CE_AutoEnableCrafting"); //injects recipes
+                                               //TODO end of lines that need to be changed if ammo system is disabled
+                newAmmo.graphicData = new GraphicData();
+                newAmmo.graphicData.texPath = ammoRefs[0][i].graphicData.texPath;
+                newAmmo.graphicData.graphicClass = ammoRefs[0][i].graphicData.graphicClass;
+                newAmmo.ammoClass = ammoRefs[0][i].ammoClass;
+                //newAmmo.cookOffProjectile = newProjectiles[i]; //TODO maybe use 5.56?
+                //newAmmo.detonateProjectile = newProjectiles[i];
+                newAmmo.thingClass = typeof(CombatExtended.AmmoThing);
+                newAmmo.tradeTags = new List<string>();
+                newAmmo.tradeTags.Add("CE_AutoEnableTrade");
+                newAmmo.tradeTags.Add("CE_AutoEnableCrafting");
+
+                RecipeDef newRecipe = MakeRecipeBase(newAmmo);
+                newRecipe.workAmount = 2800;
+
+                switch (i)
+                {
+                    case 0:
+                        {//FMJ
+                            newAmmo.defName = ("CEAP_Generic_FMJ");
+                            newAmmo.label = ("Generic FMJ Ammo");
+                            newAmmo.description = ("Generic full metal jacket ammo. Balanced on damage and penetration.");
+                            break;
+                        }
+                    case 1:
+                        {//AP
+                            newAmmo.defName = ("CEAP_Generic_AP");
+                            newAmmo.label = ("Generic AP Ammo");
+                            newAmmo.description = ("Generic armor piercing ammo. Reduced damage, but increased sharp penetration.");
+                            break;
+                        }
+                    case 2:
+                        {//HP
+                            newAmmo.defName = ("CEAP_Generic_HP");
+                            newAmmo.label = ("Generic HP Ammo");
+                            newAmmo.description = ("Generic hollow point ammo. Increased damage, but reduced sharp penetration.");
+                            break;
+                        }
+                    case 3:
+                        {//API
+                            newAmmo.defName = ("CEAP_Generic_API");
+                            newAmmo.label = ("Generic AP-I Ammo");
+                            newAmmo.description = ("Generic incendiary ammo. Decreased base damage, but adds burn.");
+                            newRecipe.workAmount *= 2;
+                            newRecipe.researchPrerequisite = ResearchProjectDef.Named("CE_AdvancedAmmo");
+                            break;
+                        }
+                    case 4:
+                        {//HE
+                            newAmmo.defName = ("CEAP_Generic_HE");
+                            newAmmo.label = ("Generic HE Ammo");
+                            newAmmo.description = ("Generic high explosive ammo. Deals bonus bomb damage.");
+                            newRecipe.workAmount *= 2;
+                            newRecipe.researchPrerequisite = ResearchProjectDef.Named("CE_AdvancedAmmo");
+                            break;
+                        }
+                    case 5:
+                        {//Sabot
+                            newAmmo.defName = ("CEAP_Generic_Sabot");
+                            newAmmo.label = ("Generic sabot Ammo");
+                            newAmmo.description = ("Generic sabot ammo. Reduced damage, but greatly increased sharp penetration.");
+                            newRecipe.workAmount *= 2;
+                            newRecipe.researchPrerequisite = ResearchProjectDef.Named("CE_AdvancedAmmo");
+                            break;
+                        }
+                    default:
+                        {
+                            break;
+                        }
+                }
+
+                newAmmo.thingCategories = new List<ThingCategoryDef>();
+                newAmmo.thingCategories.Add(industrialAmmoCat);
+                InjectedDefHasher.GiveShortHashToDef(newAmmo, typeof(AmmoDef));
+                genericAmmos[0][i] = newAmmo;
+                DefGenerator.AddImpliedDef<AmmoDef>(newAmmo);
+
+                //finish the recipe
+                newRecipe.defName = "Make" + newAmmo.defName;
+                newRecipe.label = "make " + newAmmo.label + " cartridge x500";
+                newRecipe.description = "Craft 500 " + newAmmo.label + " cartridges.";
+                newRecipe.jobString = "Making " + newAmmo.label + " cartridges.";
+                newRecipe.ingredients = ammoRecipeRefs[0][i].ingredients;
+                newRecipe.fixedIngredientFilter = ammoRecipeRefs[0][i].fixedIngredientFilter;
+                newRecipe.defaultIngredientFilter = ammoRecipeRefs[0][i].defaultIngredientFilter;
+                newRecipe.products = new List<ThingDefCountClass>();
+                newRecipe.products.Add(new ThingDefCountClass(newAmmo, 500));
+                InjectedDefHasher.GiveShortHashToDef(newRecipe, typeof(RecipeDef));
+                DefGenerator.AddImpliedDef<RecipeDef>(newRecipe);
+            }
         }
 
         private void SetBaseBullet(ThingDef bullet)
