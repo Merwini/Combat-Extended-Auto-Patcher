@@ -10,14 +10,14 @@ using System.Text;
 using System.Reflection;
 using Verse;
 
-namespace CEAP
+namespace CombatExtendedAutoPatcher
 {
     [StaticConstructorOnStartup]
     public class Base : ModBase
     {
         public override string ModIdentifier
         {
-            get { return "CEAP"; }
+            get { return "CEAutoPatcher"; }
         }
 
         //gun values here since multiple methods need them
@@ -500,23 +500,12 @@ namespace CEAP
                         {
                             defsTotal++;
                             //TODO:
-                            //add/remove statBases
-                            //generate ammo
-                            //get projectile / sound / etc data from verb
-                            //switch to CE verb
-                            //assign projectile / sound / etc data
-                            //assign ammo to verb
-                            //add CompProperties_AmmoUser and CompProperties_FireModes
                             //Burst size will be size for Burst fire mode, 2x for suppressive (if burst > 1)
-                            //add CE melee attacks for ranged weapons
-                            //defsPatched++;
-                            //here's where we put the ranged weapon patch logic
                             ScrapeGunStats(weapon);
                             PatchStatBases(weapon);
                             PatchVerb(weapon);
                             AddCompsAmmoUser(weapon);
                             AddCompsFireModes(weapon);
-                            //GenerateAmmo(weapon);
                             PatchGunTools(weapon);
                             PatchModExtensions(weapon);
                             
@@ -549,10 +538,7 @@ namespace CEAP
                                 weapon.tools[i] = PatchTool(weapon.tools[i]);
                             }
                         }
-                        //TODO: check if already CE-compatible, not sure how
-                        //update: melee attacks are a list of tools. CE tools have class CombatExtended.ToolCE. Any tool without that must be patched
                         //most also have equippedStatOffsets MeleeCritChance MeleeParryChance and MeleeDodgeChance, but these are not required
-                        //TODO: if not, add CE stats, remove vanilla stats
                     }
                     else
                     {
@@ -615,7 +601,7 @@ namespace CEAP
                         newVPCE.onlyManualCast = vp.onlyManualCast;
                         newVPCE.stopBurstWithoutLos = vp.stopBurstWithoutLos;
                         //newVPCE.ForcedMissRadius = vp.ForcedMissRadius; //not used by Verb_ShootCE
-                        newVPCE.burstShotCount = vp.burstShotCount;
+                        newVPCE.burstShotCount = vp.burstShotCount * 2;
                         activeProjectile = vp.defaultProjectile;
                         newVPCE.defaultProjectile = vp.defaultProjectile;
                         newVPCE.defaultProjectile.thingClass = typeof(CombatExtended.BulletCE);
@@ -657,6 +643,7 @@ namespace CEAP
         private ProjectilePropertiesCE ConvertPP(ProjectileProperties ppHolder)
         {
             ProjectilePropertiesCE ppceHolder = new ProjectilePropertiesCE();
+
             ppceHolder.speed = ppHolder.speed;
             ppceHolder.ai_IsIncendiary = ppHolder.ai_IsIncendiary;
             ppceHolder.explosionEffect = ppHolder.explosionEffect;
@@ -675,14 +662,14 @@ namespace CEAP
             ppceHolder.explosionRadius = ppHolder.explosionRadius;
             ppceHolder.damageDef = ppHolder.damageDef; // TODO DamageDefOf.Stun seems to not actually injure the target, just stun them. might need to account for that
             ppceHolder.stoppingPower = ppHolder.stoppingPower;
-            ppceHolder.armorPenetrationBlunt = 1;
-            ppceHolder.armorPenetrationSharp = 1; //TODO maybe change these?
             ppceHolder.alwaysFreeIntercept = ppHolder.alwaysFreeIntercept;
             ppceHolder.shadowSize = ppHolder.shadowSize;
             ppceHolder.soundHitThickRoof = ppHolder.soundHitThickRoof;
             ppceHolder.soundExplode = ppHolder.soundExplode;
             ppceHolder.soundImpactAnticipate = ppHolder.soundImpactAnticipate;
             ppceHolder.arcHeightFactor = ppHolder.arcHeightFactor;
+            ppceHolder.armorPenetrationBlunt = 1;
+            ppceHolder.armorPenetrationSharp = 1; //TODO maybe change these? only applicable if default projectile is used, which it never is
             SetDamage(ppceHolder, ppHolder.GetDamageAmount(1f, null));
             ppceHolder.secondaryDamage = ExtraToSecondary(ppHolder.extraDamages);
             return ppceHolder;
@@ -715,11 +702,17 @@ namespace CEAP
             projectileDamage = activeProjectile.projectile.GetDamageAmount(1, pew); //TODO learn Reflection to see if it is applicable here
             projectilePenetration = activeProjectile.projectile.GetArmorPenetration(1, pew);
             int gunMassIndex;
-            gunMassIndex = weapon.statBases.FindIndex(i => i.stat == StatDef.Named("Mass"));
+            gunMassIndex = weapon.statBases.FindIndex(i => i.stat == StatDefOf.Mass); //StatDef.Named("Mass"));
             if (gunMassIndex >= 0)
             {
                 gunMass = weapon.statBases[gunMassIndex].value;
             }
+            /*int gunTickBBSIndex;
+            gunTickBBSIndex = weapon.statBases.FindIndex(i => i.stat == StatDef.Named("TicksBetweenBurstShots"));
+            if (gunTickBBSIndex >= 0)
+            {
+                ticksBetweenBurstShots = (int)weapon.statBases[gunTickBBSIndex].value;
+            }*/
             accuracyTouch = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyTouch"))].value;
             accuracyShort = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyShort"))].value;
             accuracyMedium = weapon.statBases[weapon.statBases.FindIndex(i => i.stat == StatDef.Named("AccuracyMedium"))].value;
@@ -735,7 +728,7 @@ namespace CEAP
         private void AddCompsAmmoUser(ThingDef weapon) //TODO WIP 
         {
             CombatExtended.CompProperties_AmmoUser newAUComp = new CombatExtended.CompProperties_AmmoUser();
-            newAUComp.magazineSize = burstShotCountV * 5;
+            newAUComp.magazineSize = weapon.Verbs[0].burstShotCount * 5;
             newAUComp.reloadTime = 4f;//TODO change based on gun type
             newAUComp.reloadOneAtATime = false; //TODO heuristic
             newAUComp.throwMote = true; //TODO wtf is a mote
@@ -761,9 +754,9 @@ namespace CEAP
             newFMComp.aiUseBurstMode = true; //sure?
             newFMComp.noSingleShot = false; //TODO figure out what types of CE guns don't have this
             newFMComp.noSnapshot = false; //TODO same as above
-            newFMComp.aiAimMode = AimMode.SuppressFire; //TODO if statement based on gun type
-            newFMComp.compClass = typeof(CombatExtended.CompFireModes);
+            newFMComp.aiAimMode = AimMode.Snapshot; //TODO if statement based on gun type?
             weapon.comps.Add(newFMComp);
+            
             //Logger.Message("afterfm " +weapon.defName + " has comps:");
         }
 
@@ -787,7 +780,7 @@ namespace CEAP
             soundCastTail = null;
             soundAiming = null;
             forcedMissRadius = 0;
-            ticksBetweenBurstShots = 0;
+            ticksBetweenBurstShots = 15;
             burstShotCountV = 1;
             warmupTime = 0;
             muzzleFlashScale = 0;
@@ -947,14 +940,14 @@ namespace CEAP
             StatModifier ticksBBS = new StatModifier();
             ticksBBS.stat = StatDef.Named("TicksBetweenBurstShots");
             ticksBBS.value = ticksBetweenBurstShots;
-
+            
             //BurstShotCount as above. int, ex: AR 3, LMG 10, pistols 1
             StatModifier burstShotCount = new StatModifier();
             burstShotCount.stat = StatDef.Named("BurstShotCount");
-            if (burstShotCountV == 1)
+            if (weapon.Verbs[0].burstShotCount == 1)
                 burstShotCount.value = 1;
             else
-                burstShotCount.value = 2 * burstShotCountV;
+                burstShotCount.value = 2 * weapon.Verbs[0].burstShotCount;
 
             if (gunType != gunTypes.Grenade)
             {
@@ -975,14 +968,13 @@ namespace CEAP
             //a turret is tagged as TurretGun, because it inherits that from BaseWeaponTurret
             if (weapon.weaponTags.Contains("TurretGun"))
                 return gunTypes.Turret;
-            //a bow is a pre-industrial ranged weapon with a burst count of 1. Let's hope there aren't many edge cases.
-            //if (weapon.label.IndexOf("bow", 0, StringComparison.CurrentCultureIgnoreCase) != -1 || weapon.Verbs[0].defaultProjectile.label.IndexOf("arrow", 0, StringComparison.CurrentCultureIgnoreCase) != -1)
+            //a bow is a pre-industrial ranged weapon with a burst count of 1. Let's hope there aren't many edge cases
             else if ((weapon.techLevel.CompareTo(TechLevel.Medieval) <= 0) && (burstShotCountV == 1))
                 return gunTypes.Bow;
             //a grenade uses a different verb from most weapons
             else if (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_ShootLaunchProjectile"))
                 return gunTypes.Grenade;
-            //grendade launchers have a forced miss radius but are reusable
+            //grenade launchers have a forced miss radius but are reusable
             else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (weapon.Verbs[0].ForcedMissRadius != 0) && (weapon.Verbs[0].verbClass.ToString().EqualsIgnoreCase("Verse.Verb_Shoot")))
                 return gunTypes.GrenadeLauncher;
             //rocket launchers have a forced miss radius and aren't reusable i.e. their verbClass is Verse.Verb_ShootOneUse
@@ -996,19 +988,19 @@ namespace CEAP
                                                                                 || (weapon.Verbs[0].defaultProjectile.ToString().IndexOf("gauge", 0, StringComparison.CurrentCultureIgnoreCase) != -1)))
                 return gunTypes.Shotgun;
             //a pistol is an industrial or higher weapon with burst count 1 and either a range < 26 OR mass < 2
-            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV == 1) && ((gunRange < 26) || (gunMass < 2)))
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (weapon.Verbs[0].burstShotCount == 1) && ((gunRange < 26) || (gunMass < 2)))
                 return gunTypes.Pistol;
             // a sniper is an industrial or higher weapon with burst count 1 and either a range >= 26 OR mass 
-            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV == 1) && ((gunRange >= 26) || (gunMass > 2)))
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (weapon.Verbs[0].burstShotCount == 1) && ((gunRange >= 26) || (gunMass > 2)))
                 return gunTypes.Sniper;
             //an SMG is an industrial or higher weapon with burst count > 1 and a range < 23
-            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV > 1) && (weapon.Verbs[0].range < 23))
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (weapon.Verbs[0].burstShotCount > 1) && (weapon.Verbs[0].range < 23))
                 return gunTypes.SMG;
-            //a rifle is an industrial or higher weapon with burst count > 1 but < 6 and a range >= 23
-            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV > 1) && (burstShotCountV < 6) && (gunRange >= 23))
+            //a rifle is an industrial or higher weapon with burst count > 1 but <= 6 and a range >= 23
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (weapon.Verbs[0].burstShotCount > 1) && (weapon.Verbs[0].burstShotCount <= 6) && (weapon.Verbs[0].range >= 23))
                 return gunTypes.Rifle;
             //a machine gun is an industrial or higher weapon with burst count > 1 and either burst count >= 6 OR mass > 6?
-            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (burstShotCountV > 1) && ((burstShotCountV >= 6) || (gunMass > 6)))
+            else if ((weapon.techLevel.CompareTo(TechLevel.Industrial) >= 0) && (weapon.Verbs[0].burstShotCount > 1) && ((weapon.Verbs[0].burstShotCount > 6) || (gunMass > 6)))
                 return gunTypes.MachineGun;
             else
                 return gunTypes.Other;
@@ -1246,25 +1238,57 @@ namespace CEAP
 
         private void PatchTurrets(List<ThingDef> turrets)
         {
+            //magic numbers
+            float defaultBulk = 25f;
+            float defaultShootAccuracy = 1f;
+            float defaultAimAccuracy = 1f;
+            float defaultSightsAccuracy = 0.5f;
+
             BeginPatch("TURRETS");
-            foreach (ThingDef turret in turrets)
+            foreach (ThingDef td in turrets)
             {
                 defsTotal++;
                 try
                 {
-                    if (turret.fillPercent < 0.85)
+                    //setting fill percent to 0.85 gives cover height of 1.49m, enough to shoot over most cover and be shot over
+                    if (td.fillPercent < 0.85)
                     {
-                        turret.fillPercent = 0.85f;
-                        defsPatched++;
+                        td.fillPercent = 0.85f;
                     }
+
+
+                    //remove refuelability, if it exists
+                    td.comps.RemoveAll(x => x.GetType() == typeof(CompProperties_Refuelable));
+
+                    //change class
+                    td.thingClass = typeof(Building_TurretGunCE);
+
+                    if (!td.comps.Any(x => x.GetType() == typeof(CompProperties_Mannable)))
+                    {
+                        StatUtility.SetStatValueInList(ref td.statBases, StatDefOf.ShootingAccuracyTurret, defaultShootAccuracy);
+                        StatUtility.SetStatValueInList(ref td.statBases, CE_StatDefOf.AimingAccuracy, defaultAimAccuracy);
+                    }
+
+
+                    //artillery needs sights efficiency, gun turrets use the stat of the turret weapon
+                    if (td.building.buildingTags.Any(x => x.Equals("Artillery")))
+                    {
+                        StatUtility.SetStatValueInList(ref td.statBases, CE_StatDefOf.SightsEfficiency, defaultSightsAccuracy);
+                    }
+
+                    //will only need a bulk value if it can be minified
+                    if (td.Minifiable)
+                    {
+                        StatUtility.SetStatValueInList(ref td.statBases, CE_StatDefOf.Bulk, defaultBulk);
+                    }
+
+
                 }
                 catch (Exception ex)
                 {
                     Logger.Error(ex.ToString());
                     defsFailed++;
                 }
-                //TODO: remove <comps><Class=CompProperties_Reguelable> and make it use ammo instead
-                //UPDATE: I have no idea what I meant to say above
             }
             EndPatch("TURRETS");
 
@@ -1703,7 +1727,6 @@ namespace CEAP
         public Exception Inner { get; }
     }
 
-    /* ended up not working
     public class PropertyCopier<TParent, TChild> where TParent : class //this has failed to work, TODO remove
                                             where TChild : class
     {
@@ -1732,5 +1755,5 @@ namespace CEAP
                 }
             }
         }
-    } */
+    }
 }
